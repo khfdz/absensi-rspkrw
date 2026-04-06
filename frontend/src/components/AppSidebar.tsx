@@ -18,6 +18,7 @@ const items = [
   { title: "Data Pegawai", url: "/pegawai", icon: Users },
   { title: "Data Absensi", url: "/absensi", icon: ClipboardList },
   { title: "Rekap Harian", url: "/rekap", icon: Building2 },
+  { title: "Laporan Departemen", url: "/laporan-departemen", icon: ClipboardList },
   { title: "Live Clock-In", url: "/clock-in", icon: Clock },
 ];
 

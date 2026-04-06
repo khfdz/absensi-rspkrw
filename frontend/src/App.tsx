@@ -11,6 +11,7 @@ import DataPegawai from "@/pages/DataPegawai";
 import DataAbsensi from "@/pages/DataAbsensi";
 import RekapAbsensi from "@/pages/RekapAbsensi";
 import LiveClockIn from "@/pages/LiveClockIn";
+import LaporanDepartemen from "@/pages/LaporanDepartemen";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -50,6 +51,7 @@ function AppRoutes() {
       <Route path="/pegawai" element={<ProtectedRoute><DataPegawai /></ProtectedRoute>} />
       <Route path="/absensi" element={<ProtectedRoute><DataAbsensi /></ProtectedRoute>} />
       <Route path="/rekap" element={<ProtectedRoute><RekapAbsensi /></ProtectedRoute>} />
+      <Route path="/laporan-departemen" element={<ProtectedRoute><LaporanDepartemen /></ProtectedRoute>} />
       <Route path="/clock-in" element={<ProtectedRoute><LiveClockIn /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>

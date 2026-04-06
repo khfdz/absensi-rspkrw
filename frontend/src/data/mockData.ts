@@ -48,6 +48,6 @@ export const absensiData: Absensi[] = [
   { id: "8", nik: "PEG002", nama: "Ahmad Fauzi", departemen: "Rawat Inap", tanggal: "2026-03-31", jam_masuk: "06:50", jam_pulang: "14:00", status: "Pulang", lat: -6.3233, lng: 107.3378 },
 ];
 
-export const DEPARTEMEN_LIST = ["IGD", "Rawat Inap", "Farmasi", "Keuangan", "Kebidanan", "IT", "HRD", "Radiologi"];
+export const DEPARTEMEN_LIST = ["IGD", "Rawat Inap", "Farmasi", "Keuangan", "Kebidanan", "IT", "HRD", "Radiologi", "KB"];
 export const BIDANG_LIST = ["Medis", "Keperawatan", "Penunjang Medis", "Administrasi", "Penunjang"];
 export const JNJ_JABATAN_LIST = ["Dokter", "Perawat", "Farmasi", "Staff", "Bidan", "Penunjang Medis"];

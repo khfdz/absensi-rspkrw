@@ -39,14 +39,16 @@ async function receiveAbsensi(req, res) {
           continue;
         }
 
+        const ipSource = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip;
         const [result] = await pool.execute(
-          `INSERT INTO absensi (pin, waktu, status, device_id, raw_data, created_at)
-           VALUES (?, ?, ?, ?, ?, NOW())`,
+          `INSERT INTO absensi (pin, waktu, status, device_id, ip_source, raw_data, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, NOW())`,
           [
             record.pin,
             dayjs(record.waktu).format('YYYY-MM-DD HH:mm:ss'),
             record.status,
             record.device_id || null,
+            ipSource,
             JSON.stringify(record.raw),
           ]
         );
@@ -289,7 +291,7 @@ async function getRekapHarian(req, res) {
             jam_pulang: pMatch ? dayjs(pMatch.waktu).format('HH:mm:ss') : null,
             tgl_pulang: pMatch ? dayjs(pMatch.waktu).format('YYYY-MM-DD') : null,
             total_scan: logs.filter(l => dayjs(l.waktu).format('YYYY-MM-DD') === tanggal).length,
-            lokasi: (m.device_id == 1 || !m.device_id || m.ip_source === '192.168.10.150') ? 'Basement' : (m.ip_source || `Mesin ${m.device_id}`),
+            lokasi: (m.ip_source === '192.168.10.150' || m.device_id == 1) ? 'Basement' : (m.ip_source === '192.168.10.185' ? 'Poli Lt 2' : (m.ip_source || `Mesin ${m.device_id}`)),
             status: pMatch ? 'LENGKAP' : 'LUPA_PULANG'
           });
         });
@@ -303,7 +305,7 @@ async function getRekapHarian(req, res) {
             tanggal: tanggal,
             jam_masuk: null,
             jam_pulang: dayjs(pScan.waktu).format('HH:mm:ss'),
-            lokasi: (pScan.device_id == 1 || !pScan.device_id || pScan.ip_source === '192.168.10.150') ? 'Basement' : (pScan.ip_source || `Mesin ${pScan.device_id}`),
+            lokasi: (pScan.ip_source === '192.168.10.150' || pScan.device_id == 1) ? 'Basement' : (pScan.ip_source === '192.168.10.185' ? 'Poli Lt 2' : (pScan.ip_source || `Mesin ${pScan.device_id}`)),
             status: 'LUPA_MASUK'
           });
         });
@@ -326,4 +328,292 @@ async function getRekapHarian(req, res) {
   }
 }
 
-module.exports = { receiveAbsensi, getAbsensi, getRealtimeAbsensi, getRekapHarian };
+// ============================================================
+// GET /api/absensi/laporan-kb — Laporan Khusus Kamar Bayi
+// ============================================================
+async function getLaporanAbsenKB(req, res) {
+  try {
+    const { startDate, endDate, departemen } = req.query;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, message: 'startDate dan endDate wajib diisi' });
+    }
+
+    const start = dayjs(startDate);
+    const end = dayjs(endDate);
+    const diffDays = end.diff(start, 'day') + 1;
+
+    if (diffDays > 40) {
+      return res.status(400).json({ success: false, message: 'Rentang tanggal maksimal 40 hari' });
+    }
+
+    // 1. Generate Array Tanggal
+    const dateArray = [];
+    for (let i = 0; i < diffDays; i++) {
+      dateArray.push(start.add(i, 'day').format('YYYY-MM-DD'));
+    }
+
+    // 2. Ambil Data Pegawai dari SIKKRW
+    let pegawaiQuery = `
+      SELECT nik, nama, pendidikan, jbtn, mulai_kerja, departemen 
+      FROM pegawai 
+      WHERE stts_aktif = 'AKTIF'
+    `;
+    const pegawaiParams = [];
+    if (departemen && departemen !== 'all') {
+      pegawaiQuery += ` AND departemen = ?`;
+      pegawaiParams.push(departemen);
+    }
+
+    const [pegawaiRows] = await sikkPool.query(pegawaiQuery, pegawaiParams);
+
+    if (pegawaiRows.length === 0) {
+      return res.json({ success: true, data: [], dates: dateArray });
+    }
+
+    const pins = pegawaiRows.map(p => p.nik);
+
+    // 3. Ambil Jadwal Dinas & Jam Wajib
+    const [jadwalRows] = await pool.execute(
+      `SELECT pin, tanggal, shift, wajib_masuk, kategori, jam_mulai, jam_selesai 
+       FROM jadwal_dinas 
+       WHERE tanggal BETWEEN ? AND ? AND pin IN (${pins.map(() => '?').join(',')})`,
+      [startDate, endDate, ...pins]
+    );
+
+    const jadwalMap = {};
+    jadwalRows.forEach(j => {
+      const tgl = dayjs(j.tanggal).format('YYYY-MM-DD');
+      if (!jadwalMap[j.pin]) jadwalMap[j.pin] = {};
+      if (!jadwalMap[j.pin][tgl]) jadwalMap[j.pin][tgl] = {};
+      jadwalMap[j.pin][tgl][j.kategori || 'WAJIB'] = j;
+    });
+
+    // 4. Ambil Data Absensi Log (untuk cek apakah masuk atau tidak)
+    const [absensiLogs] = await pool.execute(
+      `SELECT pin, DATE(waktu) as tanggal, COUNT(*) as jml_scan
+       FROM absensi 
+       WHERE DATE(waktu) BETWEEN ? AND ? AND pin IN (${pins.map(() => '?').join(',')})
+       GROUP BY pin, DATE(waktu)`,
+      [startDate, endDate, ...pins]
+    );
+
+    const absensiMap = {};
+    absensiLogs.forEach(a => {
+      const tgl = dayjs(a.tanggal).format('YYYY-MM-DD');
+      if (!absensiMap[a.pin]) absensiMap[a.pin] = {};
+      absensiMap[a.pin][tgl] = a.jml_scan;
+    });
+
+    // 5. Hitung Sisa Cuti (12 - Cuti diambil tahun ini)
+    const currentYear = dayjs().year();
+    const [cutiRows] = await pool.execute(
+      `SELECT pin, COUNT(*) as total_cuti 
+       FROM jadwal_dinas 
+       WHERE (shift = 'Ct' OR shift = 'CB') AND YEAR(tanggal) = ? AND pin IN (${pins.map(() => '?').join(',')})
+       GROUP BY pin`,
+      [currentYear, ...pins]
+    );
+    const cutiMap = {};
+    cutiRows.forEach(c => { cutiMap[c.pin] = c.total_cuti; });
+
+    // 6. Proses Agregasi per Pegawai
+    const reportData = pegawaiRows.map(p => {
+      let totalJamAktual = 0;
+      let jamWajibPeriode = 0;
+      let totalLemburActual = 0; 
+      let countLemburActual = 0; 
+      const shiftCounts = { P: 0, S: 0, M: 0, Md: 0, Lm: 0, L: 0, Oc: 0, PS: 0, X: 0, SID: 0, SKS: 0, Pe: 0, Ct: 0, CB: 0, i: 0, A: 0 };
+      const dailyStatus = {};
+
+      const todayStr = dayjs().format('YYYY-MM-DD');
+
+      dateArray.forEach(tgl => {
+        const jWajib = jadwalMap[p.nik]?.[tgl]?.['WAJIB'];
+        const jLembur = jadwalMap[p.nik]?.[tgl]?.['LEMBUR'];
+        const hasScan = (absensiMap[p.nik]?.[tgl] || 0) > 0;
+        const isPast = dayjs(tgl).isBefore(todayStr, 'day');
+        
+        let jamHariIni = 0;
+        let shiftWajib = "-";
+        let shiftLembur = "-";
+        let wajib = (dayjs(tgl).day() === 0 ? 0 : 7);
+
+        // 1. Proses Shift Wajib
+        if (jWajib) {
+          shiftWajib = jWajib.shift;
+          wajib = jWajib.wajib_masuk;
+
+          if (['P', 'S', 'Md', 'SID', 'SKS', 'Pe', 'Ct', 'i', 'CB'].includes(shiftWajib)) {
+            jamHariIni += 7; 
+          } else if (shiftWajib === 'PS') {
+            jamHariIni += 14; 
+          } else if (shiftWajib === 'M') {
+            jamHariIni += 10; 
+          }
+        } else {
+          shiftWajib = (dayjs(tgl).day() === 0 ? 'L' : '-');
+          if (isPast && shiftWajib === '-' && !hasScan) shiftWajib = 'A';
+        }
+
+        // 2. Proses Shift Lembur
+        if (jLembur) {
+          shiftLembur = jLembur.shift;
+          const start = jLembur.jam_mulai;
+          const end = jLembur.jam_selesai;
+
+          if (start && end) {
+            shiftLembur = `${start.substring(0, 5)}-${end.substring(0, 5)}`;
+            
+            // Hitung Jam (Floor)
+            const [h1, m1] = start.split(':').map(Number);
+            const [h2, m2] = end.split(':').map(Number);
+            let diffMenit = (h2 * 60 + m2) - (h1 * 60 + m1);
+            
+            // Jika lewat tengah malam
+            if (diffMenit < 0) diffMenit += 24 * 60;
+            
+            const floorJam = Math.floor(diffMenit / 60);
+            jamHariIni += floorJam;
+            totalLemburActual += floorJam;
+            countLemburActual++; // Tambah jumlah hari lembur
+          } else {
+            // Fallback ke shift code lama jika tidak ada jam (untuk kompatibilitas)
+            if (['P', 'S', 'Md', 'SID', 'SKS', 'Pe', 'Ct', 'i', 'CB', 'Oc', 'Lm'].includes(shiftLembur)) {
+              jamHariIni += 7; 
+              totalLemburActual += 7;
+              countLemburActual++;
+            } else if (shiftLembur === 'PS') {
+              jamHariIni += 14; 
+              totalLemburActual += 14;
+              countLemburActual++;
+            } else if (shiftLembur === 'M') {
+              jamHariIni += 10; 
+              totalLemburActual += 10;
+              countLemburActual++;
+            }
+          }
+        }
+
+        jamWajibPeriode += wajib;
+        totalJamAktual += jamHariIni;
+        
+        // Simpan status harian (untuk frontend dua baris)
+        dailyStatus[tgl] = { wajib: shiftWajib, lembur: shiftLembur };
+
+        // Update counts (berdasarkan shift wajib saja untuk statistik utama)
+        if (shiftWajib === 'PS') {
+          shiftCounts.P++;
+          shiftCounts.S++;
+          shiftCounts.PS++;
+        } else if (shiftCounts.hasOwnProperty(shiftWajib)) {
+          shiftCounts[shiftWajib]++;
+        }
+        
+        // Jika ada lembur Oc, tambahkan ke count Oc
+        if (shiftLembur === 'Oc') shiftCounts.Oc++;
+        if (shiftLembur === 'Lm') shiftCounts.Lm++;
+      });
+
+      return {
+        pin: p.nik,
+        nama: p.nama,
+        pendidikan: p.pendidikan || '-',
+        jbtn: p.jbtn || '-',
+        mulai_kerja: p.mulai_kerja ? dayjs(p.mulai_kerja).format('YYYY-MM-DD') : '-',
+        jam_wajib: jamWajibPeriode,
+        jam_aktual: totalJamAktual,
+        jam_lembur_actual: totalLemburActual,
+        count_lembur: countLemburActual, // Kirim jumlah hari
+        shift_counts: shiftCounts,
+        daily_status: dailyStatus,
+        sisa_cuti: 12 - (cutiMap[p.nik] || 0)
+      };
+    });
+
+    // 7. Cari Karu (atau Kepala Ruangan/Benchmark)
+    // Keywords: Karu, Kabid, Kepala, Koor (Koordinator)
+    let karu = reportData.find(d => 
+      d.jbtn.toLowerCase().includes('karu') || 
+      d.jbtn.toLowerCase().includes('kepala') || 
+      d.jbtn.toLowerCase().includes('kabid') || 
+      d.jbtn.toLowerCase().includes('koor')
+    );
+
+    // FIX: Jika tidak ditemukan jabatan Karu, jadikan orang PERTAMA di list sebagai benchmark
+    if (!karu && reportData.length > 0) {
+      karu = reportData[0];
+    }
+
+    const benchmarkHours = karu ? karu.jam_aktual : 0;
+
+    // 8. Hitung Hutang & Lembur Berdasarkan Karu
+    reportData.forEach(d => {
+      if (benchmarkHours > 0) {
+        // Jika aktual < benchmark -> Hutang
+        d.hutang_jam = d.jam_aktual < benchmarkHours ? (benchmarkHours - d.jam_aktual) : 0;
+        // Lembur adalah total jam lembur yang diinput manual
+        d.jam_lembur = d.jam_lembur_actual;
+      } else {
+        d.hutang_jam = d.jam_aktual < d.jam_wajib ? (d.jam_wajib - d.jam_aktual) : 0;
+        d.jam_lembur = d.jam_lembur_actual;
+      }
+      d.benchmark_karu = benchmarkHours;
+    });
+
+    return res.json({
+      success: true,
+      startDate,
+      endDate,
+      dates: dateArray,
+      data: reportData
+    });
+
+  } catch (err) {
+    console.error('❌ getLaporanAbsenKB error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+// ============================================================
+// POST /api/absensi/jadwal-dinas — Update atau Simpan Shift
+// ============================================================
+async function upsertJadwalDinas(req, res) {
+  try {
+    const { pin, tanggal, shift, kategori = 'WAJIB', jam_mulai, jam_selesai } = req.body;
+
+    if (!pin || !tanggal || !shift) {
+      return res.status(400).json({ success: false, message: 'pin, tanggal, dan shift wajib diisi' });
+    }
+
+    // Default: jika L, Lm (jika wajib), atau X maka wajib_masuk 0, selain itu 7 (kecuali PS=14)
+    // Untuk kategori LEMBUR, wajib_masuk selalu 0
+    let wajib_masuk = (kategori === 'LEMBUR' || shift === 'L' || shift === 'Lm' || shift === 'X') ? 0 : 7;
+    if (shift === 'PS' && kategori === 'WAJIB') wajib_masuk = 14;
+
+    const [result] = await pool.execute(
+      `INSERT INTO jadwal_dinas (pin, tanggal, shift, wajib_masuk, kategori, jam_mulai, jam_selesai, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE 
+       shift = VALUES(shift), 
+       wajib_masuk = VALUES(wajib_masuk),
+       jam_mulai = VALUES(jam_mulai),
+       jam_selesai = VALUES(jam_selesai)`,
+      [pin, tanggal, shift, wajib_masuk, kategori, jam_mulai || null, jam_selesai || null]
+    );
+
+    return res.json({ 
+      success: true, 
+      message: 'Jadwal berhasil diperbarui', 
+      data: { pin, tanggal, shift, wajib_masuk, jam_mulai, jam_selesai } 
+    });
+  } catch (err) {
+    console.error('❌ upsertJadwalDinas error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+module.exports = { 
+  receiveAbsensi, getAbsensi, getRealtimeAbsensi, getRekapHarian, 
+  getLaporanAbsenKB, upsertJadwalDinas 
+};

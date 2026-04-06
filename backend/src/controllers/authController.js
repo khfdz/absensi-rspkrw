@@ -20,7 +20,12 @@ exports.login = async (req, res) => {
     connection = await sikkPool.getConnection();
 
     // 1. Set mode enkripsi ke AES-128-ECB sesuai spesifikasi
-    await connection.query("SET block_encryption_mode = 'aes-128-ecb'");
+    // Note: Jika MySQL versi lama (< 5.7.4), variabel ini tidak ada dan defaultnya sudah ECB.
+    try {
+      await connection.query("SET block_encryption_mode = 'aes-128-ecb'");
+    } catch (e) {
+      console.log("MySQL tidak mendukung SET block_encryption_mode, menggunakan default (ECB)...");
+    }
 
     // 2. Query ke table user (asumsi nama table 'user' di database sikkrw)
     // Menggunakan pattern CONVERT(... USING latin1) dan CAST(... AS CHAR)

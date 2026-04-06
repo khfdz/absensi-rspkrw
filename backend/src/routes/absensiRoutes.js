@@ -5,6 +5,9 @@ const {
   getAbsensi,
   getRealtimeAbsensi,
   getRekapHarian,
+  getLaporanAbsenKB,
+  upsertJadwalDinas,
+  migrateIndex,
 } = require('../controllers/absensiController');
 
 // ----------------------------------------------------------
@@ -19,6 +22,8 @@ router.post('/absen', receiveAbsensi); // default POST
 // ----------------------------------------------------------
 router.get('/absensi',          getAbsensi);          // list + filter + pagination
 router.get('/absensi/realtime', getRealtimeAbsensi);  // polling 60 detik terakhir
-router.get('/absensi/rekap',    getRekapHarian);      // rekap harian per karyawan
+router.get('/absensi/rekap',      getRekapHarian);      // rekap harian per karyawan
+router.get('/absensi/laporan-kb', getLaporanAbsenKB);   // Laporan khusus Kamar Bayi
+router.post('/absensi/jadwal-dinas', upsertJadwalDinas); // Update atau Simpan Shift
 
 module.exports = router;
