@@ -14,6 +14,7 @@ const mesinRoutes                    = require('./src/routes/mesinRoutes');
 const authRoutes                     = require('./src/routes/authRoutes');
 const pegawaiRoutes                  = require('./src/routes/pegawaiRoutes');
 const dashboardRoutes                = require('./src/routes/dashboardRoutes');
+const lemburRoutes                   = require('./src/routes/lemburRoutes');
 const { rawBodySaver, requestLogger, errorHandler } = require('./src/middleware');
 
 // ============================================================
@@ -92,6 +93,7 @@ app.use('/', mesinRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/pegawai', pegawaiRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/lembur', lemburRoutes);
 app.use('/api', absensiRoutes);
 app.use('/api', mesinRoutes); // tetap ada di /api jika diperlukan
 

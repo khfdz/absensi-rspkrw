@@ -4,6 +4,10 @@ interface User {
   nik: string;
   nama: string;
   role: string;
+  departemen?: string;
+  jnj_jabatan?: string;
+  bidang?: string;
+  jbtn?: string;
 }
 
 interface AuthContextType {

@@ -1,6 +1,7 @@
-import { LayoutDashboard, Users, ClipboardList, Clock, Building2 } from "lucide-react";
+import { LayoutDashboard, Users, ClipboardList, Clock, Building2, PenSquare, CheckSquare } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Sidebar,
   SidebarContent,
@@ -19,6 +20,8 @@ const items = [
   { title: "Data Absensi", url: "/absensi", icon: ClipboardList },
   { title: "Rekap Harian", url: "/rekap", icon: Building2 },
   { title: "Laporan Departemen", url: "/laporan-departemen", icon: ClipboardList },
+  { title: "Form Lembur", url: "/lembur", icon: PenSquare },
+  { title: "Approval Lembur", url: "/approval-lembur", icon: CheckSquare },
   { title: "Live Clock-In", url: "/clock-in", icon: Clock },
 ];
 
@@ -26,6 +29,16 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const location = useLocation();
+  const { user } = useAuth();
+
+  const filteredItems = items.filter(item => {
+    if (item.url === "/approval-lembur") {
+       const isHRD = user?.role === 'Admin' || (user?.departemen && (user.departemen.includes('SDM') || user.departemen.includes('HRD') || user.departemen.includes('Personalia')));
+       const isSupervisor = user?.jnj_jabatan && user.jnj_jabatan !== '-' && user.jnj_jabatan !== 'STAFF';
+       return isHRD || isSupervisor;
+    }
+    return true;
+  });
 
   return (
     <Sidebar collapsible="icon" className="gradient-sidebar border-r-0">
@@ -46,7 +59,7 @@ export function AppSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {items.map((item) => (
+              {filteredItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild>
                     <NavLink

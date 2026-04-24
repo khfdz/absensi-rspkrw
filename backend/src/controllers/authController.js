@@ -28,12 +28,9 @@ exports.login = async (req, res) => {
     }
 
     // 2. Query ke table user (asumsi nama table 'user' di database sikkrw)
-    // Menggunakan pattern CONVERT(... USING latin1) dan CAST(... AS CHAR)
-    const [rows] = await connection.query(
+    const [userRows] = await connection.query(
       `SELECT 
-        CAST(AES_DECRYPT(CONVERT(id_user USING latin1), 'nur') AS CHAR) as nik,
-        -- Tambahkan field lain jika diperlukan, misal nama
-        'User SIKKRW' as nama 
+        CAST(AES_DECRYPT(CONVERT(id_user USING latin1), 'nur') AS CHAR) as nik
       FROM user 
       WHERE 
         CAST(AES_DECRYPT(CONVERT(id_user USING latin1), 'nur') AS CHAR) = ? 
@@ -43,21 +40,37 @@ exports.login = async (req, res) => {
       [nik, password]
     );
 
-    if (rows.length === 0) {
+    if (userRows.length === 0) {
       return res.status(401).json({
         success: false,
         message: 'NIK atau Password salah'
       });
     }
 
-    const user = rows[0];
+    // 2.5 Ambil data lengkap dari table pegawai
+    const [pegawaiRows] = await connection.query(
+      `SELECT nama, jbtn, jnj_jabatan, departemen, bidang FROM pegawai WHERE nik = ? LIMIT 1`,
+      [nik]
+    );
+
+    const pegawai = pegawaiRows[0] || { 
+      nama: 'User SIKKRW', 
+      jbtn: 'Staff', 
+      jnj_jabatan: '-', 
+      departemen: '-', 
+      bidang: '-' 
+    };
 
     // 3. Generate JWT Token
     const token = jwt.sign(
       { 
-        nik: user.nik, 
-        nama: user.nama,
-        role: user.nik.startsWith('ADM') ? 'Admin' : 'Staff' // Simple role mapping
+        nik: nik, 
+        nama: pegawai.nama,
+        role: nik.startsWith('ADM') ? 'Admin' : 'Staff',
+        departemen: pegawai.departemen,
+        jnj_jabatan: pegawai.jnj_jabatan,
+        bidang: pegawai.bidang,
+        jbtn: pegawai.jbtn
       },
       process.env.JWT_SECRET || 'supersecretkey',
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
@@ -68,9 +81,13 @@ exports.login = async (req, res) => {
       message: 'Login berhasil',
       token,
       user: {
-        nik: user.nik,
-        nama: user.nama,
-        role: user.nik.startsWith('ADM') ? 'Admin' : 'Staff'
+        nik: nik,
+        nama: pegawai.nama,
+        role: nik.startsWith('ADM') ? 'Admin' : 'Staff',
+        departemen: pegawai.departemen,
+        jnj_jabatan: pegawai.jnj_jabatan,
+        bidang: pegawai.bidang,
+        jbtn: pegawai.jbtn
       }
     });
 

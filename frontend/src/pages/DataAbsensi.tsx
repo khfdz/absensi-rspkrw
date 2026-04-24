@@ -6,8 +6,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Download, Filter, MapPin } from "lucide-react";
+import { Download, Filter, MapPin, ArrowUpDown, ChevronUp, ChevronDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import dayjs from "dayjs";
+import "dayjs/locale/id";
+
+// Set locale dayjs ke Indonesia
+dayjs.locale("id");
 
 const statusBadge = (s: string) => {
   if (s === "Masuk") return "bg-primary/10 text-primary border-primary/20";
@@ -20,11 +25,17 @@ export default function DataAbsensi() {
   const { toast } = useToast();
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [dateFrom, setDateFrom] = useState(new Date().toISOString().split('T')[0]);
-  const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
+  const [dateFrom, setDateFrom] = useState(new Date().toLocaleDateString('en-CA')); // YYYY-MM-DD local
+  const [dateTo, setDateTo] = useState(new Date().toLocaleDateString('en-CA')); // YYYY-MM-DD local
   const [dept, setDept] = useState("all");
   const [status, setStatus] = useState("all");
   const [search, setSearch] = useState("");
+  
+  // State untuk Sorting
+  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>({
+    key: "waktu",
+    direction: "desc"
+  });
 
   const fetchAbsensi = useCallback(async () => {
     try {
@@ -40,10 +51,12 @@ export default function DataAbsensi() {
       const result = await response.json();
       if (result.success) {
         setData(result.data);
+      } else {
+        toast({ title: "Gagal", description: result.message || "Gagal mengambil data.", variant: "destructive" });
       }
     } catch (error) {
       console.error("Error fetching absensi:", error);
-      toast({ title: "Gagal", description: "Terjadi kesalahan saat mengambil data absensi.", variant: "destructive" });
+      toast({ title: "Gagal", description: "Terjadi kesalahan koneksi ke server.", variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -53,18 +66,61 @@ export default function DataAbsensi() {
     fetchAbsensi();
   }, [fetchAbsensi]);
 
-  const filtered = data; // Filtering is now handled on the server or via search state if needed localy for small sets
+  // Handle Sorting & Data Processing
+  const processedData = useMemo(() => {
+    let items = [...data];
+    
+    // 1. Sort Data
+    if (sortConfig) {
+      items.sort((a, b) => {
+        const valA = a[sortConfig.key] || "";
+        const valB = b[sortConfig.key] || "";
+        
+        if (valA < valB) return sortConfig.direction === "asc" ? -1 : 1;
+        if (valA > valB) return sortConfig.direction === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+
+    // 2. Assign Group Index for Zigzag Coloring (Based on Date)
+    let lastDate = "";
+    let groupIndex = -1;
+    
+    return items.map((item) => {
+      const currentDate = item.waktu.split(" ")[0];
+      if (currentDate !== lastDate) {
+        groupIndex++;
+        lastDate = currentDate;
+      }
+      return { ...item, groupIndex };
+    });
+  }, [data, sortConfig]);
+
+  const requestSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const getSortIcon = (key: string) => {
+    if (sortConfig?.key !== key) return <ArrowUpDown className="w-3 h-3 ml-1 opacity-30" />;
+    return sortConfig.direction === 'asc' 
+      ? <ChevronUp className="w-4 h-4 ml-1 text-primary" /> 
+      : <ChevronDown className="w-4 h-4 ml-1 text-primary" />;
+  };
 
   const exportCSV = () => {
     const headers = "NIK,Nama,Departemen,Waktu,Status,Device\n";
-    const rows = filtered.map(a =>
+    const rows = processedData.map(a =>
       `${a.pin},${a.nama_karyawan || "-"},${a.departemen || "-"},${a.waktu},${a.status},${a.device_id || "-"}`
     ).join("\n");
     const blob = new Blob([headers + rows], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `absensi_${new Date().toISOString().split("T")[0]}.csv`;
+    link.download = `absensi_${new Date().toLocaleDateString('en-CA')}.csv`;
     link.click();
     URL.revokeObjectURL(url);
     toast({ title: "Berhasil", description: "Data berhasil diexport sebagai CSV." });
@@ -74,8 +130,8 @@ export default function DataAbsensi() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Riwayat Absensi</h1>
-          <p className="text-muted-foreground text-sm">Data kehadiran pegawai hari ini & riwayat lengkap</p>
+          <h1 className="text-2xl font-bold">Riwayat Log Absensi</h1>
+          <p className="text-muted-foreground text-sm">Data scan mesin absensi secara real-time</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={fetchAbsensi} className="gap-2">
@@ -135,55 +191,102 @@ export default function DataAbsensi() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>NIK</TableHead>
-                  <TableHead>Nama</TableHead>
-                  <TableHead className="hidden md:table-cell">Departemen</TableHead>
-                  <TableHead>Tanggal</TableHead>
-                  <TableHead>Jam Masuk</TableHead>
-                  <TableHead>Jam Pulang</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => requestSort('pin')}>
+                    <div className="flex items-center">NIK {getSortIcon('pin')}</div>
+                  </TableHead>
+                  <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => requestSort('nama_karyawan')}>
+                    <div className="flex items-center">Nama {getSortIcon('nama_karyawan')}</div>
+                  </TableHead>
+                  <TableHead className="hidden md:table-cell cursor-pointer hover:bg-muted/50" onClick={() => requestSort('departemen')}>
+                    <div className="flex items-center">Departemen {getSortIcon('departemen')}</div>
+                  </TableHead>
+                  <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => requestSort('waktu')}>
+                    <div className="flex items-center">Hari/Tanggal {getSortIcon('waktu')}</div>
+                  </TableHead>
+                  <TableHead>Jam Scan</TableHead>
+                  <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => requestSort('status')}>
+                    <div className="flex items-center">Status {getSortIcon('status')}</div>
+                  </TableHead>
+                  <TableHead className="text-center">Lebih</TableHead>
+                  <TableHead>Mesin/ID</TableHead>
                   <TableHead className="hidden lg:table-cell">Lokasi</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8">
+                    <TableCell colSpan={9} className="text-center py-8">
                       Memuat data absensi...
                     </TableCell>
                   </TableRow>
-                ) : filtered.length === 0 ? (
+                ) : processedData.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                       Tidak ada data ditemukan untuk filter ini.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filtered.map(a => (
-                    <TableRow key={a.id}>
-                      <TableCell className="font-mono text-sm">{a.pin}</TableCell>
-                      <TableCell className="font-medium">{a.nama_karyawan || "No Name"}</TableCell>
-                      <TableCell className="hidden md:table-cell">{a.departemen || "-"}</TableCell>
-                      <TableCell>{a.waktu.split(' ')[0]}</TableCell>
-                      <TableCell>{a.waktu.split(' ')[1]}</TableCell>
-                      <TableCell>{a.device_id || "-"}</TableCell>
-                      <TableCell>
-                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium border ${statusBadge(a.status.charAt(0).toUpperCase() + a.status.slice(1))}`}>
-                          {a.status}
-                        </span>
-                      </TableCell>
-                      <TableCell className="hidden lg:table-cell">
-                        <span className="text-xs text-muted-foreground">Internal</span>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  processedData.map(a => {
+                    const rowDate = dayjs(a.waktu);
+                    const formatSelisih = (totalSec: number) => {
+                      if (!totalSec || totalSec <= 0) return "-";
+                      const h = Math.floor(totalSec / 3600);
+                      const m = Math.floor((totalSec % 3600) / 60);
+                      const s = totalSec % 60;
+                      
+                      const parts = [];
+                      if (h > 0) parts.push(`${h}j`);
+                      if (m > 0) parts.push(`${m}m`);
+                      if (s > 0) parts.push(`${s}d`);
+                      
+                      return parts.length > 0 ? parts.join(" ") : "-";
+                    };
+
+                    return (
+                      <TableRow 
+                        key={a.id} 
+                        className={`transition-colors border-l-4 ${a.groupIndex % 2 === 0 ? 'bg-white border-l-blue-400' : 'bg-slate-50 border-l-emerald-400'}`}
+                      >
+                        <TableCell className="font-mono text-sm">{a.pin}</TableCell>
+                        <TableCell className="font-medium">{a.nama_karyawan || "No Name"}</TableCell>
+                        <TableCell className="hidden md:table-cell text-xs text-muted-foreground">{a.departemen || "-"}</TableCell>
+                        <TableCell className="capitalize whitespace-nowrap">
+                          {rowDate.format('dddd, DD-MM-YYYY')}
+                        </TableCell>
+                        <TableCell className="font-bold">{rowDate.format('HH:mm:ss')}</TableCell>
+                        <TableCell>
+                          <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase ${statusBadge(a.status.charAt(0).toUpperCase() + a.status.slice(1))}`}>
+                            {a.status}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {a.selisih > 0 ? (
+                            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 font-bold text-[10px]">
+                              +{formatSelisih(a.selisih)}
+                            </Badge>
+                          ) : (
+                            <span className="text-slate-300">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs">{a.device_id || "-"}</TableCell>
+                        <TableCell className="hidden lg:table-cell">
+                          <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Internal</span>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
                 )}
               </TableBody>
             </Table>
           </div>
         </CardContent>
       </Card>
-      <p className="text-xs text-muted-foreground">Menampilkan {filtered.length} record</p>
+      <div className="flex justify-between items-center px-2">
+        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider italic">
+          * Warna baris berganti setiap perubahan tanggal untuk memudahkan pengamatan
+        </p>
+        <p className="text-xs font-bold bg-slate-100 px-2 py-1 rounded border">Menampilkan {processedData.length} record</p>
+      </div>
     </div>
   );
 }

@@ -110,43 +110,59 @@ async function getAbsensi(req, res) {
     const params = [];
     let where = 'WHERE 1=1';
 
-    // Filter Tanggal
-    if (startDate) {
-      where += ' AND DATE(waktu) >= ?';
-      params.push(startDate);
-    }
-    if (endDate) {
-      where += ' AND DATE(waktu) <= ?';
-      params.push(endDate);
-    }
-
-    // Filter Status
-    if (status && status !== 'all') {
-      where += ' AND status = ?';
-      params.push(status.toLowerCase());
-    }
-
-    // FILTER BEBAS: Jika ada input pencarian (NIP atau Nama)
+    // 1. FILTER BEBAS: Jika ada input pencarian (NIP atau Nama) atau Departemen
+    // Karena departemen ada di DB SIKKRW, kita cari PIN dulu
     let filteredPins = null;
-    if (pin && pin.trim() !== '') {
-      // Cari NIK di SIKKRW yang sesuai dengan NIP atau Nama
-      const [matches] = await sikkPool.query(
-        `SELECT nik FROM pegawai WHERE nik = ? OR nama LIKE ?`,
-        [pin, `%${pin}%`]
-      );
+    
+    if ((pin && pin.trim() !== '') || (departemen && departemen !== 'all')) {
+      let sikkQuery = `SELECT nik FROM pegawai WHERE 1=1`;
+      const sikkParams = [];
+      
+      if (pin && pin.trim() !== '') {
+        sikkQuery += ` AND (nik = ? OR nama LIKE ?)`;
+        sikkParams.push(pin.trim(), `%${pin.trim()}%`);
+      }
+      
+      if (departemen && departemen !== 'all') {
+        sikkQuery += ` AND departemen = ?`;
+        sikkParams.push(departemen);
+      }
+
+      const [matches] = await sikkPool.query(sikkQuery, sikkParams);
       filteredPins = matches.map(m => m.nik);
       
       if (filteredPins.length > 0) {
         where += ` AND pin IN (?)`;
         params.push(filteredPins);
       } else {
-        // Jika tidak ada yang cocok di SIKKRW, paksa hasil kosong
-        where += ` AND 1=0`;
+        // Jika kriteria (Nama/Dept) diisi tapi tidak ada yang cocok di SIKKRW, paksa hasil kosong
+        return res.json({ 
+          success: true, 
+          data: [], 
+          pagination: { total: 0, page: parseInt(page), limit: parseInt(limit), total_pages: 0 } 
+        });
       }
     }
 
-    // 1. Ambil log absensi dari local DB
-    const [rows] = await pool.execute(
+    // 2. Filter Tanggal (Inclusive)
+    if (startDate && startDate.trim() !== '') {
+      where += ' AND DATE(waktu) >= ?';
+      params.push(startDate);
+    }
+    if (endDate && endDate.trim() !== '') {
+      where += ' AND DATE(waktu) <= ?';
+      params.push(endDate);
+    }
+
+    // 3. Filter Status
+    if (status && status !== 'all') {
+      where += ' AND status = ?';
+      params.push(status.toLowerCase());
+    }
+
+    // 4. Ambil log absensi dari local DB
+    // Gunakan pool.query (bukan execute) agar IN (?) dengan array diproses dengan benar oleh mysql2
+    const [rows] = await pool.query(
       `SELECT id, pin, waktu, status, device_id, created_at
        FROM absensi
        ${where}
@@ -155,48 +171,116 @@ async function getAbsensi(req, res) {
       params
     );
 
-    const [cnt] = await pool.execute(`SELECT COUNT(*) AS total FROM absensi ${where}`, params);
+    const [cnt] = await pool.query(`SELECT COUNT(*) AS total FROM absensi ${where}`, params);
+    const total = cnt[0].total;
 
     if (rows.length === 0) {
-      return res.json({ success: true, data: [], pagination: { total: 0 } });
+      return res.json({ 
+        success: true, 
+        data: [], 
+        pagination: { total: 0, page: parseInt(page), limit: parseInt(limit), total_pages: 0 } 
+      });
     }
 
-    // 2. Ambil semua nama pegawai yang unik dari SIKKRW
-    const pins = [...new Set(rows.map(r => r.pin))];
+    // 5. Ambil detail pegawai & jadwal untuk baris yang muncul di halaman ini
+    const pinsOnPage = [...new Set(rows.map(r => r.pin))];
     const [pegawaiRows] = await sikkPool.query(
       `SELECT nik, nama, departemen FROM pegawai WHERE nik IN (?)`,
-      [pins]
+      [pinsOnPage]
     );
 
-    // Map pegawai ke object untuk akses cepat
+    // Ambil jadwal dinas untuk penentuan "Lebih Jam"
+    // Kita ambil jadwal untuk rentang tanggal yang dihasilkan saja
+    const datesOnPage = [...new Set(rows.map(r => dayjs(r.waktu).format('YYYY-MM-DD')))];
+    let jadwalRows = [];
+    if (pinsOnPage.length > 0 && datesOnPage.length > 0) {
+      [jadwalRows] = await pool.query(
+        `SELECT pin, tanggal, jam_mulai, jam_selesai 
+         FROM jadwal_dinas 
+         WHERE pin IN (?) AND tanggal IN (?)`,
+        [pinsOnPage, datesOnPage]
+      );
+    }
+
     const pegawaiMap = {};
     pegawaiRows.forEach(p => { pegawaiMap[p.nik] = p; });
 
-    // 3. Gabungkan data (Merge)
-    let mergedData = rows.map(r => ({
-      ...r,
-      nama_karyawan: pegawaiMap[r.pin] ? pegawaiMap[r.pin].nama : '-',
-      departemen: pegawaiMap[r.pin] ? pegawaiMap[r.pin].departemen : '-',
-      waktu: dayjs(r.waktu).format('YYYY-MM-DD HH:mm:ss')
-    }));
+    const jadwalMap = {};
+    jadwalRows.forEach(j => {
+      const tgl = dayjs(j.tanggal).format('YYYY-MM-DD');
+      if (!jadwalMap[j.pin]) jadwalMap[j.pin] = {};
+      jadwalMap[j.pin][tgl] = j;
+    });
 
-    // Optional: Filter by department if requested (since departemen is in SIKKRW)
-    if (departemen && departemen !== 'all') {
-      mergedData = mergedData.filter(d => d.departemen === departemen);
-    }
+    // 6. Gabungkan data & Hitung Lembur (Pairing)
+    // Kita buat map untuk mencari pasangan masuk/pulang per tanggal per pin
+    const mergedData = rows.map(r => {
+      const dayObj = dayjs(r.waktu);
+      const tgl = dayObj.format('YYYY-MM-DD');
+      const time = dayObj.format('HH:mm:ss');
+      const dayOfWeek = dayObj.day();
+      const j = jadwalMap[r.pin]?.[tgl];
+      
+      let defaultStart = '08:00:00';
+      let defaultEnd   = '16:00:00';
+      if (dayOfWeek === 6) defaultEnd = '13:00:00';
+      else if (dayOfWeek === 0) defaultEnd = '00:00:00';
+
+      const schedStartStr = j?.jam_mulai || defaultStart;
+      const schedEndStr   = j?.jam_selesai || defaultEnd;
+      
+      const schedStartSec = dayjs(`${tgl} ${schedStartStr}`).diff(dayjs(tgl).startOf('day'), 'second');
+      const schedEndSec   = dayjs(`${tgl} ${schedEndStr}`).diff(dayjs(tgl).startOf('day'), 'second');
+      const actualTimeSec = dayjs(r.waktu).diff(dayjs(r.waktu).startOf('day'), 'second');
+
+      let selisih_detik = 0;
+
+      // Hanya tampilkan "Lebih" pada baris PULANG agar tidak membingungkan 
+      if (r.status === 'pulang') {
+        // Pairing: Cari 'masuk' yang sesuai untuk baris 'pulang' ini.
+        // Kita cari 'masuk' terbaru yang terjadi SEBELUM jam pulang ini di hari yang sama.
+        const matchingMasuk = rows.find(m => 
+          m.pin === r.pin && 
+          m.status === 'masuk' && 
+          dayjs(m.waktu).isBefore(dayObj) && 
+          dayjs(m.waktu).isAfter(dayObj.startOf('day'))
+        );
+
+        const masukTimeSec = matchingMasuk 
+          ? dayjs(matchingMasuk.waktu).diff(dayjs(matchingMasuk.waktu).startOf('day'), 'second')
+          : null;
+
+        // startPointForOvertime adalah waktu dimulainya lembur.
+        // Jika dia masuk SETELAH jam pulang normal (misal masuk 20:00), maka dihitung dari jam masuknya.
+        // Jika tidak ada data masuk, kita anggap mulai dari jam pulang normal.
+        const startPointForOvertime = masukTimeSec !== null ? Math.max(schedEndSec, masukTimeSec) : schedEndSec;
+        
+        if (actualTimeSec > startPointForOvertime) {
+          selisih_detik = actualTimeSec - startPointForOvertime;
+        }
+      }
+
+      return {
+        ...r,
+        nama_karyawan: pegawaiMap[r.pin] ? pegawaiMap[r.pin].nama : 'Tidak Terdaftar',
+        departemen: pegawaiMap[r.pin] ? pegawaiMap[r.pin].departemen : '-',
+        waktu: dayjs(r.waktu).format('YYYY-MM-DD HH:mm:ss'),
+        selisih: selisih_detik
+      };
+    });
 
     return res.json({
       success: true, 
       data: mergedData,
       pagination: {
         page: parseInt(page), limit: parseInt(limit),
-        total: cnt[0].total,
-        total_pages: Math.ceil(cnt[0].total / parseInt(limit)),
+        total: total,
+        total_pages: Math.ceil(total / parseInt(limit)),
       },
     });
   } catch (err) {
-    console.error('❌ getAbsensi:', err);
-    return res.status(500).json({ success: false, message: err.message });
+    console.error('❌ getAbsensi error:', err);
+    return res.status(500).json({ success: false, message: 'Server Error: ' + err.message });
   }
 }
 
