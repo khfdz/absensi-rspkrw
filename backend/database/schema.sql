@@ -167,3 +167,44 @@ SELECT
 FROM absensi a
 LEFT JOIN karyawan k ON k.pin = a.pin
 GROUP BY DATE(a.waktu), a.pin, k.nama, k.departemen;
+
+-- ============================================================
+-- TABEL TAMBAHAN (DIURUS OLEH CONTROLLER)
+-- ============================================================
+
+-- Tabel record (Format Stabil untuk ADMS)
+CREATE TABLE IF NOT EXISTS record (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  user_id     VARCHAR(50)  NOT NULL,
+  check_time  VARCHAR(50)  NOT NULL COMMENT 'Format: M/D/YYYY H:mm:ss',
+  check_type  VARCHAR(5)   NOT NULL COMMENT 'I=In, O=Out',
+  INDEX idx_user_time (user_id, check_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Tabel user (Local user reference untuk join cepat)
+CREATE TABLE IF NOT EXISTS user (
+  id      INT AUTO_INCREMENT PRIMARY KEY,
+  nip     VARCHAR(50)  UNIQUE,
+  name    VARCHAR(100) NOT NULL,
+  role    VARCHAR(20)  DEFAULT 'Staff',
+  INDEX idx_nip (nip)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Tabel jadwal_dinas
+CREATE TABLE IF NOT EXISTS jadwal_dinas (
+  id           INT AUTO_INCREMENT PRIMARY KEY,
+  pin          VARCHAR(50)  NOT NULL,
+  tanggal      DATE         NOT NULL,
+  shift        VARCHAR(10)  NOT NULL,
+  wajib_masuk  INT          DEFAULT 7,
+  kategori     VARCHAR(20)  DEFAULT 'WAJIB',
+  jam_mulai    TIME         NULL,
+  jam_selesai  TIME         NULL,
+  created_at   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_pin_tanggal_kategori (pin, tanggal, kategori),
+  INDEX idx_pin_tanggal (pin, tanggal)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Migrasi awal dari karyawan ke user
+INSERT IGNORE INTO user (nip, name)
+SELECT pin, nama FROM karyawan;

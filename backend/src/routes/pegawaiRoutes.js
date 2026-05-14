@@ -9,5 +9,6 @@ const authMiddleware = require('../middleware/authMiddleware');
  * @access Private (but let's make it public for now to test)
  */
 router.get('/', pegawaiController.getPegawai);
+router.get('/sikk-users', pegawaiController.getSikkUsers);
 
 module.exports = router;

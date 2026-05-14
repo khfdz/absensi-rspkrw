@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, ClipboardList, Clock, Building2, PenSquare, CheckSquare } from "lucide-react";
+import { LayoutDashboard, Users, ClipboardList, Clock, Building2, PenSquare, CheckSquare, ShieldCheck } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -22,6 +22,7 @@ const items = [
   { title: "Laporan Departemen", url: "/laporan-departemen", icon: ClipboardList },
   { title: "Form Lembur", url: "/lembur", icon: PenSquare },
   { title: "Approval Lembur", url: "/approval-lembur", icon: CheckSquare },
+  { title: "User SIKKRW", url: "/sikk-users", icon: ShieldCheck },
   { title: "Live Clock-In", url: "/clock-in", icon: Clock },
 ];
 

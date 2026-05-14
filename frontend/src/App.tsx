@@ -14,6 +14,7 @@ import LiveClockIn from "@/pages/LiveClockIn";
 import LaporanDepartemen from "@/pages/LaporanDepartemen";
 import FormLembur from "@/pages/FormLembur";
 import ApprovalLembur from "@/pages/ApprovalLembur";
+import SikkUsers from "@/pages/SikkUsers";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -56,6 +57,7 @@ function AppRoutes() {
       <Route path="/laporan-departemen" element={<ProtectedRoute><LaporanDepartemen /></ProtectedRoute>} />
       <Route path="/lembur" element={<ProtectedRoute><FormLembur /></ProtectedRoute>} />
       <Route path="/approval-lembur" element={<ProtectedRoute><ApprovalLembur /></ProtectedRoute>} />
+      <Route path="/sikk-users" element={<ProtectedRoute><SikkUsers /></ProtectedRoute>} />
       <Route path="/clock-in" element={<ProtectedRoute><LiveClockIn /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>

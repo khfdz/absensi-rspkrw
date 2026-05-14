@@ -1,25 +1,7 @@
 TABLES FOUND:
 - absensi
 - absensi_log_error
-- biometric
 - device_mesin
+- karyawan
 - raw_mesin_log
-- record
-- user
 - v_rekap_harian
-
---- STRUCTURE OF biometric ---
-ID | varchar(255) | YES |  | null | 
-user_id | varchar(255) | YES |  | null | 
-finger_id | varchar(255) | YES |  | null | 
-finger_data | longtext | YES |  | null | 
-
---- STRUCTURE OF user ---
-id | varchar(255) | YES |  | null | 
-nip | varchar(255) | YES |  | null | 
-name | varchar(255) | YES |  | null | 
-
---- STRUCTURE OF record ---
-user_id | varchar(255) | YES |  | null | 
-check_time | varchar(255) | YES |  | null | 
-check_type | varchar(255) | YES |  | null | 
