@@ -44,10 +44,12 @@ app.use(cors({
     // Normalisasi: hapus trailing slash
     const normalizedOrigin = origin.replace(/\/$/, "");
 
-    // Selalu ijinkan localhost/127.0.0.1 untuk kenyamanan development
+    // Selalu ijinkan localhost/127.0.0.1 untuk kenyamanan development, serta subnet IP privat (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+    const isPrivateIP = /^https?:\/\/(?:192\.168\.|10\.|172\.(?:1[6-9]|2[0-9]|3[0-1])\.)/.test(normalizedOrigin);
     if (
       normalizedOrigin.includes('localhost') || 
       normalizedOrigin.includes('127.0.0.1') ||
+      isPrivateIP ||
       allowedOrigins.includes(normalizedOrigin)
     ) {
       return cb(null, true);
