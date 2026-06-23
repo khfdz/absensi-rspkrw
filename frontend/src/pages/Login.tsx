@@ -28,26 +28,23 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen gradient-primary flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-white via-neutral-50 to-neutral-100/40 flex items-center justify-center p-4">
       <div className="w-full max-w-md animate-fade-in">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-card/20 backdrop-blur-sm mb-4">
-            <Building2 className="w-8 h-8 text-primary-foreground" />
-          </div>
-          <h1 className="text-2xl font-bold text-primary-foreground">RS Permata Keluarga</h1>
-          <p className="text-primary-foreground/70 text-sm mt-1">HR & Attendance System — Karawang</p>
+          <img
+            src="/image/logoBersih.png"
+            alt="Logo RS Permata Keluarga"
+            className="h-20 w-auto mx-auto mb-4 object-contain filter drop-shadow-[0_2px_6px_rgba(0,0,0,0.06)] animate-scale-in"
+          />
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">RS Permata Keluarga</h1>
+          <p className="text-muted-foreground text-sm mt-1.5 font-medium">HR & Attendance System — Karawang</p>
         </div>
 
-        <Card className="shadow-2xl border-0">
-          <CardHeader className="pb-4 pt-6 px-6">
-            <div className="flex items-center gap-2 text-muted-foreground text-sm">
-              <ShieldCheck className="w-4 h-4 text-secondary" />
-              <span>Secure Login</span>
-            </div>
-          </CardHeader>
+        <Card className="bg-card rounded-2xl border border-border shadow-float p-2 hover:shadow-elevated transition-all duration-200">
+
           <CardContent className="px-6 pb-6">
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
+              <div className="space-y-2 mt-4">
                 <Label htmlFor="nik">NIK (Username)</Label>
                 <Input
                   id="nik"
@@ -101,7 +98,8 @@ export default function Login() {
             </form>
 
             <p className="text-xs text-center text-muted-foreground mt-6">
-              Demo: NIK <span className="font-mono bg-muted px-1 rounded">ADM001</span> / Password <span className="font-mono bg-muted px-1 rounded">admin123</span>
+              <span className="font-mono bg-muted px-1 rounded">Login menggunakan akun SIMRS KHANZA
+              </span>
             </p>
           </CardContent>
         </Card>

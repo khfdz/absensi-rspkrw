@@ -136,7 +136,7 @@ io.on('connection', (socket) => {
 // ============================================================
 // START
 // ============================================================
-const PORT = parseInt(process.env.PORT) || 3103;
+const PORT = parseInt(process.env.PORT) || 6032;
 const HOST = '0.0.0.0'; // listen semua interface
 
 async function startServer() {

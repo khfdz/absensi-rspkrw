@@ -7,14 +7,12 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppLayout } from "@/components/AppLayout";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
-import DataPegawai from "@/pages/DataPegawai";
-import DataAbsensi from "@/pages/DataAbsensi";
-import RekapAbsensi from "@/pages/RekapAbsensi";
 import LiveClockIn from "@/pages/LiveClockIn";
 import LaporanDepartemen from "@/pages/LaporanDepartemen";
-import FormLembur from "@/pages/FormLembur";
-import ApprovalLembur from "@/pages/ApprovalLembur";
 import SikkUsers from "@/pages/SikkUsers";
+import LemburFinder from "@/pages/LemburFinder";
+import SyncDatabase from "@/pages/SyncDatabase";
+import DataAbsensi from "@/pages/DataAbsensi";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -51,14 +49,12 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={<AuthRoute><Login /></AuthRoute>} />
       <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/pegawai" element={<ProtectedRoute><DataPegawai /></ProtectedRoute>} />
-      <Route path="/absensi" element={<ProtectedRoute><DataAbsensi /></ProtectedRoute>} />
-      <Route path="/rekap" element={<ProtectedRoute><RekapAbsensi /></ProtectedRoute>} />
       <Route path="/laporan-departemen" element={<ProtectedRoute><LaporanDepartemen /></ProtectedRoute>} />
-      <Route path="/lembur" element={<ProtectedRoute><FormLembur /></ProtectedRoute>} />
-      <Route path="/approval-lembur" element={<ProtectedRoute><ApprovalLembur /></ProtectedRoute>} />
       <Route path="/sikk-users" element={<ProtectedRoute><SikkUsers /></ProtectedRoute>} />
       <Route path="/clock-in" element={<ProtectedRoute><LiveClockIn /></ProtectedRoute>} />
+      <Route path="/lembur-finder" element={<ProtectedRoute><LemburFinder /></ProtectedRoute>} />
+      <Route path="/absensi" element={<ProtectedRoute><DataAbsensi /></ProtectedRoute>} />
+      <Route path="/sync" element={<ProtectedRoute><SyncDatabase /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

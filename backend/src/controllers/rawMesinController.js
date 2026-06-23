@@ -39,6 +39,8 @@ async function receivePushMesin(req, res) {
   const parsedBody  = req.body      || {};
   const queryParams = req.query     || {};
 
+  let rawLogId = null;
+
   try {
     // ── 1. Simpan raw log dulu (audit trail) ──────────────────
     const [rawInsert] = await pool.execute(
@@ -53,7 +55,7 @@ async function receivePushMesin(req, res) {
         rawBody || null,
       ]
     );
-    const rawLogId = rawInsert.insertId;
+    rawLogId = rawInsert.insertId;
 
     // ── 1.b KHUSUS ADMS: Handle Sinkronisasi Opsi/Waktu ───────
     const sn   = queryParams.SN || queryParams.sn || queryParams.device_id || 'unknown';
@@ -117,9 +119,11 @@ async function receivePushMesin(req, res) {
         // ── 3a. Proteksi Duplikat (Tabel absensi lama) ───────
         const [dup1] = await pool.execute(
           `SELECT id FROM absensi
-            WHERE pin = ? AND ABS(TIMESTAMPDIFF(SECOND, waktu, ?)) < 30
+            WHERE pin = ?
+              AND waktu >= DATE_SUB(?, INTERVAL 30 SECOND)
+              AND waktu <= DATE_ADD(?, INTERVAL 30 SECOND)
             LIMIT 1`,
-          [pinStr, waktu]
+          [pinStr, waktu, waktu]
         );
 
         // ── 3b. Proteksi Duplikat (Tabel record baru) ────────
@@ -215,14 +219,19 @@ async function receivePushMesin(req, res) {
     return res.status(200).send('OK');
 
   } catch (err) {
-    console.error('❌ receivePushMesin error:', err.message);
-    try {
-      await pool.execute(
-        `INSERT INTO absensi_log_error
-           (ip_source, method, content_type, raw_body, error_msg) VALUES (?,?,?,?,?)`,
-        [ip, method, contentType, rawBody.slice(0, 65000), err.message]
-      );
-    } catch (_) {}
+    console.error('❌ receivePushMesin error:', err.stack);
+    if (rawLogId) {
+      try {
+        await pool.execute(
+          `UPDATE raw_mesin_log
+              SET parse_status = 'error',
+                  process_status = 'error',
+                  error_msg = ?
+            WHERE id = ?`,
+          [err.message, rawLogId]
+        );
+      } catch (_) {}
+    }
     return res.status(200).send('OK');
   }
 }
