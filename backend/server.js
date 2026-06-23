@@ -151,15 +151,15 @@ async function startServer() {
   httpServer.listen(PORT, HOST, () => {
     console.log('\n🚀 ================================================');
     console.log(`   Server    : http://0.0.0.0:${PORT}`);
-    console.log(`   Dashboard : http://192.168.10.184:${PORT}`);
+    console.log(`   Dashboard : http://192.168.10.106:${PORT}`);
     console.log(`   ─── Endpoint Mesin X100C ───────────────────`);
-    console.log(`   Mesin push: POST http://192.168.10.184:${PORT}/api/mesin/push`);
-    console.log(`   Mesin push: GET  http://192.168.10.184:${PORT}/api/mesin/push`);
+    console.log(`   Mesin push: POST http://192.168.10.106:${PORT}/api/mesin/push`);
+    console.log(`   Mesin push: GET  http://192.168.10.106:${PORT}/api/mesin/push`);
     console.log(`   ─── Endpoint Frontend ──────────────────────`);
-    console.log(`   Raw Log   : GET  http://192.168.10.184:${PORT}/api/mesin/raw`);
-    console.log(`   Raw Stats : GET  http://192.168.10.184:${PORT}/api/mesin/raw/stats`);
-    console.log(`   Absensi   : GET  http://192.168.10.184:${PORT}/api/absensi`);
-    console.log(`   Rekap     : GET  http://192.168.10.184:${PORT}/api/absensi/rekap`);
+    console.log(`   Raw Log   : GET  http://192.168.10.106:${PORT}/api/mesin/raw`);
+    console.log(`   Raw Stats : GET  http://192.168.10.106:${PORT}/api/mesin/raw/stats`);
+    console.log(`   Absensi   : GET  http://192.168.10.106:${PORT}/api/absensi`);
+    console.log(`   Rekap     : GET  http://192.168.10.106:${PORT}/api/absensi/rekap`);
     console.log(`   Health    : GET  http://localhost:${PORT}/health`);
     console.log('🚀 ================================================\n');
   });
