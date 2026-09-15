@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
-import { API_BASE } from "@/config";
+import { authFetch } from "@/lib/api";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -58,7 +58,7 @@ export default function LaporanDepartemen() {
   const fetchReport = useCallback(async (silent = false) => {
     try {
       if (!silent) setLoading(true);
-      const res = await fetch(`${API_BASE}/api/absensi/laporan-kb?startDate=${periodRange.start}&endDate=${periodRange.end}&departemen=${dept}`);
+      const res = await authFetch(`/api/absensi/laporan-kb?startDate=${periodRange.start}&endDate=${periodRange.end}&departemen=${dept}`);
       const result = await res.json();
       if (result.success) {
         setData(result.data);
@@ -87,9 +87,8 @@ export default function LaporanDepartemen() {
     jam_selesai?: string
   ) => {
     try {
-      const res = await fetch(`${API_BASE}/api/absensi/jadwal-dinas`, {
+      const res = await authFetch(`/api/absensi/jadwal-dinas`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin, tanggal, shift, kategori, jam_mulai, jam_selesai })
       });
       const result = await res.json();

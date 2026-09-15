@@ -1,4 +1,4 @@
-import { LayoutDashboard, ClipboardList, Clock, Building2, ShieldCheck, Timer, RefreshCw, ListCollapse } from "lucide-react";
+import { LayoutDashboard, ClipboardList, Timer, RefreshCw, ListCollapse, ShieldCheck } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -14,14 +14,20 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-const items = [
+interface MenuItem {
+  title: string;
+  url: string;
+  icon: any;
+  roles?: ("IT" | "HRD" | "STAFF")[];
+}
+
+const items: MenuItem[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Data Absensi", url: "/absensi", icon: ListCollapse },
-  { title: "Laporan Departemen", url: "/laporan-departemen", icon: ClipboardList },
-  { title: "User SIKKRW", url: "/sikk-users", icon: ShieldCheck },
   { title: "Lembur Finder", url: "/lembur-finder", icon: Timer },
-  { title: "Live Clock-In", url: "/clock-in", icon: Clock },
-  { title: "Sinkronisasi", url: "/sync", icon: RefreshCw },
+  { title: "Laporan Departemen", url: "/laporan-departemen", icon: ClipboardList, roles: ["IT"] },
+  { title: "Sinkronisasi", url: "/sync", icon: RefreshCw, roles: ["IT"] },
+  { title: "Hak Akses", url: "/hak-akses", icon: ShieldCheck, roles: ["IT"] },
 ];
 
 export function AppSidebar() {
@@ -30,7 +36,13 @@ export function AppSidebar() {
   const location = useLocation();
   const { user } = useAuth();
 
-  const filteredItems = items;
+  const userRole = (user?.role || "STAFF") as "IT" | "HRD" | "STAFF";
+
+  // Filter menu sesuai role user
+  const filteredItems = items.filter((item) => {
+    if (!item.roles) return true;
+    return item.roles.includes(userRole);
+  });
 
   return (
     <Sidebar collapsible="icon" className="gradient-sidebar border-r border-sidebar-border">
@@ -44,7 +56,12 @@ export function AppSidebar() {
               {!collapsed && (
                 <div className="leading-tight animate-scale-in">
                   <p className="text-sm font-bold text-sidebar-foreground tracking-tight">RS Permata Keluarga</p>
-                  <p className="text-xs text-sidebar-muted font-medium">HR System</p>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <p className="text-xs text-sidebar-muted font-medium">HR System</p>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-sidebar-accent font-semibold text-primary">
+                      {userRole}
+                    </span>
+                  </div>
                 </div>
               )}
             </div>

@@ -15,6 +15,7 @@ const authRoutes                     = require('./src/routes/authRoutes');
 const pegawaiRoutes                  = require('./src/routes/pegawaiRoutes');
 const dashboardRoutes                = require('./src/routes/dashboardRoutes');
 const lemburRoutes                   = require('./src/routes/lemburRoutes');
+const roleRoutes                     = require('./src/routes/roleRoutes');
 const { rawBodySaver, requestLogger, errorHandler } = require('./src/middleware');
 
 // ============================================================
@@ -93,6 +94,7 @@ app.use('/', mesinRoutes);
 
 // 2. Rute API Lainnya
 app.use('/api/auth', authRoutes);
+app.use('/api/roles', roleRoutes);
 app.use('/api/pegawai', pegawaiRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/lembur', lemburRoutes);

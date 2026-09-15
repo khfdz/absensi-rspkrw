@@ -112,11 +112,15 @@ async function getAbsensi(req, res) {
     const params = [];
     let where = 'WHERE 1=1';
 
-    // 1. FILTER BEBAS: Jika ada input pencarian (NIP atau Nama) atau Departemen
-    // Karena departemen ada di DB SIKKRW, kita cari PIN dulu
-    let filteredPins = null;
-    
-    if ((pin && pin.trim() !== '') || (departemen && departemen !== 'all')) {
+    const userRole = req.user?.role || 'STAFF';
+    const userNik = req.user?.nik;
+    const isPrivileged = userRole === 'IT' || userRole === 'HRD';
+
+    // 1. FILTER HAK AKSES: Jika STAFF (non IT/HRD), paksa hanya NIK miliknya sendiri
+    if (!isPrivileged) {
+      where += ' AND pin = ?';
+      params.push(userNik);
+    } else if ((pin && pin.trim() !== '') || (departemen && departemen !== 'all')) {
       let sikkQuery = `SELECT nik FROM pegawai WHERE 1=1`;
       const sikkParams = [];
       
@@ -131,7 +135,7 @@ async function getAbsensi(req, res) {
       }
 
       const [matches] = await sikkPool.query(sikkQuery, sikkParams);
-      filteredPins = matches.map(m => m.nik);
+      const filteredPins = matches.map(m => m.nik);
       
       if (filteredPins.length > 0) {
         where += ` AND pin IN (?)`;
@@ -323,90 +327,123 @@ async function getRealtimeAbsensi(req, res) {
 
 // ============================================================
 // GET /api/absensi/rekap — Rekap harian (Pintar: Gabung In + Out)
+// Mendukung single tanggal (?tanggal=YYYY-MM-DD) maupun rentang waktu (?startDate=...&endDate=...)
 // ============================================================
 async function getRekapHarian(req, res) {
   try {
-    const { tanggal = dayjs().format('YYYY-MM-DD') } = req.query;
-    const nextDay = dayjs(tanggal).add(1, 'day').format('YYYY-MM-DD');
+    const startDate = req.query.startDate || req.query.tanggal || dayjs().format('YYYY-MM-DD');
+    const endDate = req.query.endDate || req.query.tanggal || startDate;
+    const nextDayAfterEnd = dayjs(endDate).add(1, 'day').format('YYYY-MM-DD');
 
-    // 1. Ambil semua log absensi untuk hari ini DAN besok (untuk shift malam)
-    const [absensiRows] = await pool.execute(
-      `SELECT pin, waktu, status, device_id, ip_source
+    const userRole = req.user?.role || 'STAFF';
+    const userNik = req.user?.nik;
+    const isPrivileged = userRole === 'IT' || userRole === 'HRD';
+
+    // 1. Ambil log absensi dari startDate hingga endDate + 1 hari (buffer shift malam)
+    let absensiSql = `SELECT pin, waktu, status, device_id, ip_source
        FROM absensi 
-       WHERE DATE(waktu) BETWEEN ? AND ?
-       ORDER BY waktu ASC`,
-      [tanggal, nextDay]
-    );
+       WHERE waktu >= ? AND waktu <= ?`;
+    const absensiParams = [`${startDate} 00:00:00`, `${nextDayAfterEnd} 14:00:00`];
+
+    if (!isPrivileged) {
+      absensiSql += ` AND pin = ?`;
+      absensiParams.push(userNik);
+    }
+    absensiSql += ` ORDER BY waktu ASC`;
+
+    const [absensiRows] = await pool.query(absensiSql, absensiParams);
 
     // 2. Ambil data pegawai dari SIKKRW
-    const [pegawaiRows] = await sikkPool.query(`SELECT nik, nama, departemen FROM pegawai`);
+    let pegawaiSql = `SELECT nik, nama, departemen FROM pegawai`;
+    const pegawaiParams = [];
+    if (!isPrivileged) {
+      pegawaiSql += ` WHERE nik = ?`;
+      pegawaiParams.push(userNik);
+    }
+    const [pegawaiRows] = await sikkPool.query(pegawaiSql, pegawaiParams);
 
-    // 3. Proses Gabung Baris (Consolidation Logic)
+    // 3. Proses Gabung Baris (Consolidation Logic) per tanggal per pegawai
     const rekap = pegawaiRows.map(p => {
       const logs = absensiRows.filter(a => a.pin === p.nik);
-      
-      // Filter log 'masuk' khusus di tanggal yang dipilih (Basis Rekap)
-      const logsMasukHariIni = logs.filter(l => 
-        l.status === 'masuk' && dayjs(l.waktu).format('YYYY-MM-DD') === tanggal
-      );
+      if (logs.length === 0) return [];
 
-      // Filter log 'pulang' pada tanggal yang dipilih
-      const logsPulangHariIni = logs.filter(l => 
-        l.status === 'pulang' && dayjs(l.waktu).format('YYYY-MM-DD') === tanggal
-      );
+      // Dapatkan semua tanggal unik dalam rentang [startDate, endDate] di mana pegawai memiliki scan
+      const activeDates = [...new Set(
+        logs
+          .map(l => dayjs(l.waktu).format('YYYY-MM-DD'))
+          .filter(tgl => tgl >= startDate && tgl <= endDate)
+      )].sort();
 
-      // Cari Pasangan: Untuk setiap 'masuk', cari 'pulang' terdekat (max +14 jam)
       const results = [];
-      
-      if (logsMasukHariIni.length > 0) {
-        logsMasukHariIni.forEach(m => {
-          const startTime = dayjs(m.waktu);
-          // Cari 'pulang' pertama setelah jam masuk ini, dalam jendela 14 jam
-          const pMatch = logs.find(l => 
-            l.status === 'pulang' && 
-            dayjs(l.waktu).isAfter(startTime) && 
-            dayjs(l.waktu).diff(startTime, 'hour') <= 14
-          );
 
-          results.push({
-            pin: p.nik,
-            nama: p.nama,
-            departemen: p.departemen,
-            tanggal: tanggal,
-            jam_masuk: startTime.format('HH:mm:ss'),
-            jam_pulang: pMatch ? dayjs(pMatch.waktu).format('HH:mm:ss') : null,
-            tgl_pulang: pMatch ? dayjs(pMatch.waktu).format('YYYY-MM-DD') : null,
-            total_scan: logs.filter(l => dayjs(l.waktu).format('YYYY-MM-DD') === tanggal).length,
-            lokasi: (m.ip_source === '192.168.10.150' || m.device_id == 1) ? 'Basement' : (m.ip_source === '192.168.10.185' ? 'Poli Lt 2' : (m.ip_source || `Mesin ${m.device_id}`)),
-            status: pMatch ? 'LENGKAP' : 'LUPA_PULANG'
+      activeDates.forEach(tgl => {
+        // Filter log 'masuk' khusus di tanggal ini
+        const logsMasukHariIni = logs.filter(l => 
+          l.status === 'masuk' && dayjs(l.waktu).format('YYYY-MM-DD') === tgl
+        );
+
+        // Filter log 'pulang' pada tanggal ini
+        const logsPulangHariIni = logs.filter(l => 
+          l.status === 'pulang' && dayjs(l.waktu).format('YYYY-MM-DD') === tgl
+        );
+
+        if (logsMasukHariIni.length > 0) {
+          logsMasukHariIni.forEach(m => {
+            const startTime = dayjs(m.waktu);
+            // Cari 'pulang' pertama setelah jam masuk ini, dalam jendela 14 jam
+            const pMatch = logs.find(l => 
+              l.status === 'pulang' && 
+              dayjs(l.waktu).isAfter(startTime) && 
+              dayjs(l.waktu).diff(startTime, 'hour') <= 14
+            );
+
+            results.push({
+              pin: p.nik,
+              nama: p.nama,
+              departemen: p.departemen,
+              tanggal: tgl,
+              jam_masuk: startTime.format('HH:mm:ss'),
+              jam_pulang: pMatch ? dayjs(pMatch.waktu).format('HH:mm:ss') : null,
+              tgl_pulang: pMatch ? dayjs(pMatch.waktu).format('YYYY-MM-DD') : null,
+              total_scan: logs.filter(l => dayjs(l.waktu).format('YYYY-MM-DD') === tgl).length,
+              lokasi: (m.ip_source === '192.168.10.150' || m.device_id == 1) ? 'Basement' : (m.ip_source === '192.168.10.185' ? 'Poli Lt 2' : (m.ip_source || `Mesin ${m.device_id}`)),
+              status: pMatch ? 'LENGKAP' : 'LUPA_PULANG'
+            });
           });
-        });
-      } else if (logsPulangHariIni.length > 0) {
-        // Kasus: Ada 'pulang' tapi tidak ada 'masuk' di hari yang sama
-        logsPulangHariIni.forEach(pScan => {
-          results.push({
-            pin: p.nik,
-            nama: p.nama,
-            departemen: p.departemen,
-            tanggal: tanggal,
-            jam_masuk: null,
-            jam_pulang: dayjs(pScan.waktu).format('HH:mm:ss'),
-            lokasi: (pScan.ip_source === '192.168.10.150' || pScan.device_id == 1) ? 'Basement' : (pScan.ip_source === '192.168.10.185' ? 'Poli Lt 2' : (pScan.ip_source || `Mesin ${pScan.device_id}`)),
-            status: 'LUPA_MASUK'
+        } else if (logsPulangHariIni.length > 0) {
+          // Kasus: Ada 'pulang' tapi tidak ada 'masuk' di hari yang sama
+          logsPulangHariIni.forEach(pScan => {
+            results.push({
+              pin: p.nik,
+              nama: p.nama,
+              departemen: p.departemen,
+              tanggal: tgl,
+              jam_masuk: null,
+              jam_pulang: dayjs(pScan.waktu).format('HH:mm:ss'),
+              tgl_pulang: tgl,
+              total_scan: logs.filter(l => dayjs(l.waktu).format('YYYY-MM-DD') === tgl).length,
+              lokasi: (pScan.ip_source === '192.168.10.150' || pScan.device_id == 1) ? 'Basement' : (pScan.ip_source === '192.168.10.185' ? 'Poli Lt 2' : (pScan.ip_source || `Mesin ${pScan.device_id}`)),
+              status: 'LUPA_MASUK'
+            });
           });
-        });
-      }
+        }
+      });
 
       return results;
     }).flat();
 
-    // Mapping akhir untuk frontend
-    const finalData = rekap.filter(r => r !== null);
+    // Urutkan data rekap: tanggal terbaru terlebih dahulu, lalu nama
+    rekap.sort((a, b) => {
+      if (a.tanggal !== b.tanggal) return b.tanggal.localeCompare(a.tanggal);
+      return a.nama.localeCompare(b.nama);
+    });
 
     return res.json({ 
       success: true, 
-      tanggal, 
-      data: finalData 
+      startDate,
+      endDate,
+      tanggal: startDate, 
+      data: rekap 
     });
   } catch (err) {
     console.error('❌ getRekapHarian:', err);
@@ -701,21 +738,107 @@ async function upsertJadwalDinas(req, res) {
 
 // ============================================================
 // GET /api/absensi/lembur-finder — Cari Lembur & On-Call per Pegawai
-// Query: ?nama=dhika&startDate=2026-04-25&endDate=2026-05-25
+// Mendukung Pola Perawat (termasuk Minggu), Shift Swap (Tukar Jadwal),
+// On-Call tanpa batas minimal, dan Lembur minimal 1 jam.
 // ============================================================
 async function getLemburFinder(req, res) {
   try {
-    const { nama, startDate, endDate } = req.query;
+    const { 
+      nama, 
+      startDate, 
+      endDate,
+      // Pola Jadwal: 'AUTO_PERAWAT' | 'NON_SHIFT' | 'CUSTOM'
+      patternType = 'AUTO_PERAWAT',
+      // Jadwal Kerja
+      workStart = '08:00',
+      workEnd = '16:00',
+      saturdayStart = '08:00',
+      saturdayEnd = '13:00',
+      saturdayIsOff = 'false',
+      sundayStart = '07:00',
+      sundayEnd = '14:00',
+      sundayIsOff = 'false',
+      // Hari Libur
+      holidayDays = '0',
+      customHolidays = '',
+      // Tukar Jadwal Hari (JSON map per tanggal: { "YYYY-MM-DD": { shift, start, end, isOff } })
+      scheduleOverrides = '',
+      // Koreksi Manual Fingerprint (JSON map per tanggal: { "YYYY-MM-DD": { masuk, pulang, tipe, detail } })
+      manualCorrections = '',
+      // Opsi Di Luar Jam Kerja
+      outsideShiftMode = 'ON-CALL', // 'ON-CALL' | 'LEMBUR'
+      // Kustom Jadwal Harian Senin s/d Minggu
+      customDailySchedule = ''
+    } = req.query;
 
     if (!nama || !startDate || !endDate) {
       return res.status(400).json({ success: false, message: 'nama, startDate, dan endDate wajib diisi' });
     }
 
-    // 1. Cari pegawai yang cocok dengan nama (batasi 10 hasil agar IN() tidak terlalu besar)
-    const [pegawaiRows] = await sikkPool.query(
-      `SELECT nik, nama, departemen FROM pegawai WHERE nama LIKE ? ORDER BY nama ASC LIMIT 10`,
-      [`%${nama.trim()}%`]
-    );
+    const userRole = req.user?.role || 'STAFF';
+    const userNik = req.user?.nik;
+    const isPrivileged = userRole === 'IT' || userRole === 'HRD';
+
+    // Parse overrides (Tukar Jadwal)
+    let parsedOverrides = {};
+    if (scheduleOverrides) {
+      try {
+        parsedOverrides = typeof scheduleOverrides === 'string' 
+          ? JSON.parse(scheduleOverrides) 
+          : scheduleOverrides;
+      } catch (e) {
+        console.warn('Gagal parse scheduleOverrides:', e.message);
+      }
+    }
+
+    // Parse manual corrections (Koreksi Fingerprint)
+    let parsedCorrections = {};
+    if (manualCorrections) {
+      try {
+        parsedCorrections = typeof manualCorrections === 'string' 
+          ? JSON.parse(manualCorrections) 
+          : manualCorrections;
+      } catch (e) {
+        console.warn('Gagal parse manualCorrections:', e.message);
+      }
+    }
+
+    let parsedCustomSchedule = null;
+    if (customDailySchedule) {
+      try {
+        parsedCustomSchedule = typeof customDailySchedule === 'string'
+          ? JSON.parse(customDailySchedule)
+          : customDailySchedule;
+      } catch (e) {
+        console.warn('Gagal parse customDailySchedule:', e.message);
+      }
+    }
+
+    // Parse configuration rules
+    const isSatOff = String(saturdayIsOff) === 'true';
+    const isSunOff = String(sundayIsOff) === 'true';
+    const parsedHolidayDays = holidayDays 
+      ? String(holidayDays).split(',').map(d => parseInt(d.trim(), 10)).filter(n => !isNaN(n))
+      : (patternType === 'AUTO_PERAWAT' ? [] : [0]);
+    
+    if (isSatOff && !parsedHolidayDays.includes(6)) parsedHolidayDays.push(6);
+    if (isSunOff && !parsedHolidayDays.includes(0)) parsedHolidayDays.push(0);
+
+    const parsedCustomHolidays = customHolidays
+      ? String(customHolidays).split(',').map(s => s.trim()).filter(Boolean)
+      : [];
+    const modeOutside = outsideShiftMode === 'LEMBUR' ? 'LEMBUR' : 'ON-CALL';
+
+    // 1. Cari pegawai yang cocok (jika STAFF, hanya cari NIK sendiri)
+    let pegawaiQuery = `SELECT nik, nama, departemen FROM pegawai WHERE nama LIKE ? ORDER BY nama ASC LIMIT 10`;
+    let pegawaiParams = [`%${nama.trim()}%`];
+
+    if (!isPrivileged) {
+      pegawaiQuery = `SELECT nik, nama, departemen FROM pegawai WHERE nik = ? LIMIT 1`;
+      pegawaiParams = [userNik];
+    }
+
+    const [pegawaiRows] = await sikkPool.query(pegawaiQuery, pegawaiParams);
 
     if (pegawaiRows.length === 0) {
       return res.json({ success: true, pegawai: [], data: [] });
@@ -724,9 +847,6 @@ async function getLemburFinder(req, res) {
     const pins = pegawaiRows.map(p => p.nik);
 
     // 2. Ambil semua log absensi untuk pegawai tersebut dalam rentang tanggal
-    // FIX PERFORMA: Gunakan range waktu langsung (bukan DATE(waktu)) agar MySQL bisa pakai index!
-    // DATE(waktu) BETWEEN => full table scan (lambat)
-    // waktu >= startDate AND waktu < endDate+1 => index seek (cepat)
     const endDatePlus = dayjs(endDate).add(2, 'day').format('YYYY-MM-DD'); // +2 untuk buffer shift malam
 
     const [absensiRows] = await pool.query(
@@ -739,11 +859,28 @@ async function getLemburFinder(req, res) {
       [pins, `${startDate} 00:00:00`, `${endDatePlus} 00:00:00`]
     );
 
+    // 2b. Ambil jadwal dinas resmi dari database jadwal_dinas jika ada
+    let dbJadwalMap = {};
+    try {
+      const [jadwalDbRows] = await pool.query(
+        `SELECT pin, tanggal, shift, jam_mulai, jam_selesai, kategori 
+         FROM jadwal_dinas 
+         WHERE pin IN (?) AND tanggal >= ? AND tanggal <= ?`,
+        [pins, startDate, endDate]
+      );
+      jadwalDbRows.forEach(j => {
+        const dStr = dayjs(j.tanggal).format('YYYY-MM-DD');
+        if (!dbJadwalMap[j.pin]) dbJadwalMap[j.pin] = {};
+        dbJadwalMap[j.pin][dStr] = j;
+      });
+    } catch (err) {
+      console.warn('⚠️ Gagal memuat jadwal_dinas:', err.message);
+    }
+
     // 3. Kelompokkan log per pegawai per tanggal
     const pegawaiMap = {};
     pegawaiRows.forEach(p => { pegawaiMap[p.nik] = p; });
 
-    // Buat map log per pin
     const logsByPin = {};
     pins.forEach(pin => { logsByPin[pin] = []; });
     absensiRows.forEach(r => {
@@ -764,25 +901,7 @@ async function getLemburFinder(req, res) {
         const tgl = cursor.format('YYYY-MM-DD');
         const dayOfWeek = cursor.day(); // 0=Minggu, 1=Senin, ..., 6=Sabtu
 
-        // Shift default IT
-        let shiftStart = null;
-        let shiftEnd   = null;
-        let shiftLabel = '';
-
-        if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-          shiftStart = '08:00';
-          shiftEnd   = '16:00';
-          shiftLabel = 'Senin-Jumat 08:00-16:00';
-        } else if (dayOfWeek === 6) {
-          shiftStart = '08:00';
-          shiftEnd   = '13:00';
-          shiftLabel = 'Sabtu 08:00-13:00';
-        } else {
-          // Minggu - hari libur, tidak ada shift
-          shiftLabel = 'Libur (Minggu)';
-        }
-
-        // Ambil log untuk hari ini (mulai jam 05:00) s/d besok pagi (sebelum jam 05:00) untuk pairing shift & on-call
+        // Ambil log untuk hari ini (mulai jam 05:00) s/d besok pagi (sebelum jam 05:00)
         const tglBerikut = cursor.add(1, 'day').format('YYYY-MM-DD');
         const startLimit = dayjs(`${tgl} 05:00:00`);
         const endLimit   = dayjs(`${tglBerikut} 05:00:00`);
@@ -792,13 +911,162 @@ async function getLemburFinder(req, res) {
           .filter(d => (d.isSame(startLimit) || d.isAfter(startLimit)) && d.isBefore(endLimit))
           .sort((a, b) => a.diff(b));
 
-        if (dayTaps.length === 0) {
-          // Tidak ada absensi hari ini
+        // ─── PENENTUAN JADWAL SHIFT & TUKAR JADWAL ───
+        let shiftStart = null;
+        let shiftEnd   = null;
+        let shiftLabel = '';
+        let isHoliday = false;
+
+        // Prioritas 1: Tukar Jadwal Hari (Manual Override)
+        if (parsedOverrides[tgl]) {
+          const ovr = parsedOverrides[tgl];
+          if (ovr.isOff) {
+            isHoliday = true;
+            shiftLabel = 'Tukar Jadwal: Libur (Off)';
+          } else {
+            shiftStart = ovr.start || '07:00';
+            shiftEnd   = ovr.end || '14:00';
+            shiftLabel = `Tukar: ${ovr.label || ovr.shift || 'Shift'} (${shiftStart}-${shiftEnd})`;
+          }
+        } 
+        // Prioritas 2: Jadwal Resmi Database
+        else if (dbJadwalMap[p.nik]?.[tgl]) {
+          const jDb = dbJadwalMap[p.nik][tgl];
+          if (jDb.shift === 'LIBUR' || jDb.shift === 'OFF') {
+            isHoliday = true;
+            shiftLabel = `Jadwal Dinas: Libur (${jDb.shift})`;
+          } else {
+            shiftStart = jDb.jam_mulai ? String(jDb.jam_mulai).substring(0, 5) : '07:00';
+            shiftEnd   = jDb.jam_selesai ? String(jDb.jam_selesai).substring(0, 5) : '14:00';
+            shiftLabel = `Jadwal Dinas: ${jDb.shift || 'Shift'} (${shiftStart}-${shiftEnd})`;
+          }
+        }
+        // Prioritas 3: Tanggal Merah / Libur Nasional Khusus
+        else if (parsedCustomHolidays.includes(tgl)) {
+          isHoliday = true;
+          shiftLabel = 'Libur Nasional / Khusus';
+        }
+        // Prioritas 4: Pola Shift Perawat (Dukungan penuh Hari Minggu & Deteksi Shift Cerdas)
+        else if (patternType === 'AUTO_PERAWAT') {
+          if (dayTaps.length === 0) {
+            isHoliday = true;
+            shiftLabel = dayOfWeek === 0 ? 'Libur (Minggu)' : 'Libur / Off';
+          } else {
+            // Deteksi shift perawat berdasarkan jam tap masuk pertama
+            const firstHour = dayTaps[0].hour() + dayTaps[0].minute() / 60;
+            if (firstHour >= 5.5 && firstHour < 12) {
+              shiftStart = '07:00';
+              shiftEnd   = '14:00';
+              shiftLabel = 'Shift Pagi (07:00-14:00)';
+            } else if (firstHour >= 12 && firstHour < 18.5) {
+              shiftStart = '14:00';
+              shiftEnd   = '21:00';
+              shiftLabel = 'Shift Siang (14:00-21:00)';
+            } else {
+              shiftStart = '21:00';
+              shiftEnd   = '07:00';
+              shiftLabel = 'Shift Malam (21:00-07:00)';
+            }
+          }
+        }
+        // Prioritas 5: Pola Non-Shift / Kantor (Senin - Jumat/Sabtu, Minggu Libur)
+        else if (patternType === 'NON_SHIFT') {
+          if (dayOfWeek === 0 || (isSatOff && dayOfWeek === 6)) {
+            isHoliday = true;
+            shiftLabel = dayOfWeek === 0 ? 'Libur (Minggu)' : 'Libur (Sabtu)';
+          } else if (dayOfWeek === 6) {
+            shiftStart = saturdayStart;
+            shiftEnd   = saturdayEnd;
+            shiftLabel = `Sabtu (${saturdayStart}-${saturdayEnd})`;
+          } else {
+            shiftStart = workStart;
+            shiftEnd   = workEnd;
+            shiftLabel = `Kerja (${workStart}-${workEnd})`;
+          }
+        }
+        // Prioritas 6: Pola Kustom (Senin s/d Minggu diatur per hari)
+        else {
+          const dayNames = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+          const dayName = dayNames[dayOfWeek];
+          const daySchedule = parsedCustomSchedule ? parsedCustomSchedule[dayOfWeek] : null;
+
+          if (daySchedule) {
+            if (daySchedule.isOff) {
+              isHoliday = true;
+              shiftLabel = `Libur (${dayName})`;
+            } else {
+              shiftStart = daySchedule.start || '08:00';
+              shiftEnd   = daySchedule.end   || '16:00';
+              shiftLabel = `${dayName} (${shiftStart}-${shiftEnd})`;
+            }
+          } else {
+            const isWeeklyHoliday = parsedHolidayDays.includes(dayOfWeek);
+            if (isWeeklyHoliday) {
+              isHoliday = true;
+              shiftLabel = `Libur (${dayName})`;
+            } else if (dayOfWeek === 0) {
+              shiftStart = sundayStart;
+              shiftEnd   = sundayEnd;
+              shiftLabel = `Minggu (${sundayStart}-${sundayEnd})`;
+            } else if (dayOfWeek === 6) {
+              shiftStart = saturdayStart;
+              shiftEnd   = saturdayEnd;
+              shiftLabel = `Sabtu (${saturdayStart}-${saturdayEnd})`;
+            } else {
+              shiftStart = workStart;
+              shiftEnd   = workEnd;
+              shiftLabel = `Kerja (${workStart}-${workEnd})`;
+            }
+          }
+        }
+
+        // ─── CEK KOREKSI MANUAL FINGERPRINT DARI USER ───
+        if (parsedCorrections[tgl]) {
+          const corr = parsedCorrections[tgl];
+          let durasi_menit = 0;
+          if (corr.masuk && corr.pulang) {
+            let mDt = dayjs(`${tgl} ${corr.masuk}`);
+            let pDt = dayjs(`${tgl} ${corr.pulang}`);
+            if (pDt.isBefore(mDt)) {
+              pDt = pDt.add(1, 'day'); // Melewati tengah malam
+            }
+
+            if (corr.tipe === 'LEMBUR' && shiftEnd) {
+              let sEndDt = dayjs(`${tgl} ${shiftEnd}`);
+              if (pDt.isAfter(sEndDt)) {
+                durasi_menit = pDt.diff(sEndDt, 'minute');
+              } else {
+                durasi_menit = pDt.diff(mDt, 'minute');
+              }
+            } else {
+              durasi_menit = pDt.diff(mDt, 'minute');
+            }
+          }
+
+          dailyResults.push({
+            tanggal: tgl,
+            hari: ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'][dayOfWeek],
+            jam_masuk: corr.masuk || null,
+            jam_pulang: corr.pulang || null,
+            shift_label: shiftLabel,
+            shift_mulai: shiftStart,
+            shift_selesai: shiftEnd,
+            tipe: corr.tipe || 'LEMBUR',
+            durasi_menit: corr.durasi_menit !== undefined ? corr.durasi_menit : durasi_menit,
+            detail: corr.detail || 'Koreksi manual fingerprint',
+            is_koreksi: true
+          });
+
           cursor = cursor.add(1, 'day');
           continue;
         }
 
-        // Hilangkan duplikat tap dalam rentang 3 menit (misal tap berkali-kali)
+        if (dayTaps.length === 0) {
+          cursor = cursor.add(1, 'day');
+          continue;
+        }
+
+        // Hilangkan duplikat tap dalam rentang 3 menit
         const uniqueTaps = [];
         for (const tap of dayTaps) {
           if (uniqueTaps.length === 0 || tap.diff(uniqueTaps[uniqueTaps.length - 1], 'minute') >= 3) {
@@ -806,45 +1074,86 @@ async function getLemburFinder(req, res) {
           }
         }
 
+        // Hitung jam batas normal shift
+        let shiftStartHour = null;
+        let shiftEndHour = null;
+        if (shiftStart) {
+          const [sh, sm] = shiftStart.split(':').map(Number);
+          shiftStartHour = sh + (sm || 0) / 60;
+        }
+        if (shiftEnd) {
+          const [eh, em] = shiftEnd.split(':').map(Number);
+          shiftEndHour = eh + (em || 0) / 60;
+        }
+
         // Bangun session kerja/on-call menggunakan state machine berbasis gap waktu
+        // Jika ada tepat 2 tap (misal 07:14 dan 01:03), langsung pasangkan sebagai Masuk dan Pulang!
         const sessions = [];
         let currentSession = null;
 
-        for (const tap of uniqueTaps) {
-          const hour = tap.hour();
-          const isSunday = dayOfWeek === 0;
-          const isOnCallCheck = isSunday || 
-            (dayOfWeek >= 1 && dayOfWeek <= 5 && hour >= 17) || 
-            (dayOfWeek === 6 && hour >= 14);
-
-          if (currentSession === null) {
-            // Cek apakah bisa digabungkan dengan session sebelumnya jika gap <= 2 jam (misal istirahat makan)
-            if (sessions.length > 0) {
-              const lastSession = sessions[sessions.length - 1];
-              if (lastSession.pulang && tap.diff(lastSession.pulang, 'hour') <= 2) {
-                currentSession = sessions.pop();
-                currentSession.pulang = null;
-                continue;
+        if (uniqueTaps.length === 2) {
+          const firstTap = uniqueTaps[0];
+          const firstHour = firstTap.hour() + firstTap.minute() / 60;
+          let isOutside = isHoliday || !shiftStart || !shiftEnd;
+          if (!isOutside && shiftStartHour !== null && shiftEndHour !== null) {
+            if (shiftEndHour > shiftStartHour) {
+              if (firstHour > shiftEndHour + 0.1 || firstHour < shiftStartHour - 1.5) {
+                isOutside = true;
+              }
+            } else {
+              if (firstHour > shiftEndHour + 0.1 && firstHour < shiftStartHour - 1.5) {
+                isOutside = true;
               }
             }
-            // Mulai session baru
-            currentSession = { masuk: tap, pulang: null, isOnCall: isOnCallCheck };
-          } else {
-            // Sudah ada session aktif, pasangkan tap ini sebagai pulang
-            const durationHours = tap.diff(currentSession.masuk, 'hour');
-            if (durationHours > 14) {
-              // Jika terlalu lama (>14 jam), kemungkinan lupa absen pulang pada session sebelumnya
-              sessions.push(currentSession);
-              currentSession = { masuk: tap, pulang: null, isOnCall: isOnCallCheck };
+          }
+          sessions.push({
+            masuk: uniqueTaps[0],
+            pulang: uniqueTaps[1],
+            isOnCall: isOutside
+          });
+        } else {
+          for (const tap of uniqueTaps) {
+            const hour = tap.hour() + tap.minute() / 60;
+
+            let isOutsideNormal = isHoliday || !shiftStart || !shiftEnd;
+            if (!isOutsideNormal && shiftStartHour !== null && shiftEndHour !== null) {
+              if (shiftEndHour > shiftStartHour) {
+                if (hour > shiftEndHour + 0.1 || hour < shiftStartHour - 1.5) {
+                  isOutsideNormal = true;
+                }
+              } else {
+                if (hour > shiftEndHour + 0.1 && hour < shiftStartHour - 1.5) {
+                  isOutsideNormal = true;
+                }
+              }
+            }
+
+            if (currentSession === null) {
+              // Jika tap ini sangat dekat (<= 20 menit) setelah pulang sesi sebelumnya, perbarui jam pulang sesi sebelumnya
+              if (sessions.length > 0) {
+                const lastSession = sessions[sessions.length - 1];
+                if (lastSession.pulang && tap.diff(lastSession.pulang, 'minute') <= 20) {
+                  lastSession.pulang = tap;
+                  continue;
+                }
+              }
+              currentSession = { masuk: tap, pulang: null, isOnCall: isOutsideNormal };
             } else {
-              currentSession.pulang = tap;
-              sessions.push(currentSession);
-              currentSession = null;
+              const durationHours = tap.diff(currentSession.masuk, 'hour');
+              // Jika durasi terlalu panjang (> 16 jam), akhiri session dan mulai session baru
+              if (durationHours > 16) {
+                sessions.push(currentSession);
+                currentSession = { masuk: tap, pulang: null, isOnCall: isOutsideNormal };
+              } else {
+                currentSession.pulang = tap;
+                sessions.push(currentSession);
+                currentSession = null;
+              }
             }
           }
-        }
-        if (currentSession !== null) {
-          sessions.push(currentSession);
+          if (currentSession !== null) {
+            sessions.push(currentSession);
+          }
         }
 
         // Koreksi single tap session (kasus lupa absen masuk atau pulang)
@@ -852,32 +1161,27 @@ async function getLemburFinder(req, res) {
           if (session.masuk && !session.pulang) {
             const tap = session.masuk;
             const hour = tap.hour();
-            const isSunday = dayOfWeek === 0;
 
-            if (isSunday) {
+            if (isHoliday || session.isOnCall) {
               session.isOnCall = true;
-              session.detail = 'Lupa absen pulang (On-Call)';
+              session.detail = `Lupa absen pulang (${modeOutside})`;
             } else {
-              const limitShiftEnd = dayOfWeek === 6 ? 15 : 18.5; // Batas shift: 15:00 Sabtu, 18:30 Weekdays
               if (hour < 12) {
-                // Absen pagi hari: Berarti datang, lupa pulang
                 session.detail = 'Lupa absen pulang';
-              } else if (hour >= 12 && hour < limitShiftEnd) {
-                // Absen sore hari dekat shift selesai: Berarti pulang, lupa absen masuk
+              } else {
                 session.pulang = tap;
                 session.masuk = null;
-                session.isOnCall = false; // Normal shift check-out
+                session.isOnCall = false;
                 session.detail = 'Lupa absen masuk';
-              } else {
-                // Absen malam hari: On-call datang, lupa pulang
-                session.isOnCall = true;
-                session.detail = 'Lupa absen pulang (On-Call)';
               }
             }
           }
         });
 
-        // Evaluasi tipe dan durasi lembur/on-call dari masing-masing session
+        // ─── EVALUASI TIPE & DURASI LEMBUR / ON-CALL ───
+        // REVISI ATURAN:
+        // 1. On-call: "tanpa batas minimal jam" (berapapun menitnya dihitung)
+        // 2. Lembur: "tetap 1 jam setelah absen" (kelebihan >= 60 menit baru dihitung lembur)
         sessions.forEach(session => {
           let tipe = 'NORMAL';
           let durasi_menit = 0;
@@ -886,25 +1190,61 @@ async function getLemburFinder(req, res) {
           const pulangHH = session.pulang ? session.pulang.format('HH:mm') : null;
 
           if (session.isOnCall) {
-            // Kasus ON-CALL
+            // ── KASUS ON-CALL / DI LUAR JAM KERJA / LIBUR ──
             if (session.masuk && session.pulang) {
-              tipe = 'ON-CALL';
-              durasi_menit = session.pulang.diff(session.masuk, 'minute');
-              detail = `On-Call masuk ${masukHH}, pulang ${pulangHH}`;
+              const totalMins = session.pulang.diff(session.masuk, 'minute');
+
+              if (modeOutside === 'LEMBUR') {
+                // Lembur di luar jam kerja: wajib minimal 1 jam (>= 60 menit)
+                if (totalMins >= 60) {
+                  tipe = 'LEMBUR';
+                  durasi_menit = totalMins;
+                  detail = isHoliday 
+                    ? `Lembur Hari Libur: Masuk ${masukHH}, Pulang ${pulangHH}`
+                    : `Lembur Luar Jam Kerja: Masuk ${masukHH}, Pulang ${pulangHH}`;
+                } else {
+                  tipe = 'NORMAL';
+                  durasi_menit = 0;
+                  detail = `Masuk ${masukHH}, Pulang ${pulangHH} (${totalMins} mnt < 1 jam minimal lembur)`;
+                }
+              } else {
+                // On-Call: "tanpa batas minimal jam"
+                tipe = 'ON-CALL';
+                durasi_menit = totalMins;
+                detail = isHoliday 
+                  ? `On-Call Hari Libur: Masuk ${masukHH}, Pulang ${pulangHH}`
+                  : `On-Call Luar Jam Kerja: Masuk ${masukHH}, Pulang ${pulangHH}`;
+              }
             } else {
               tipe = 'TIDAK_LENGKAP';
               durasi_menit = 0;
-              // detail sudah diset pada proses single tap di atas
             }
           } else {
-            // Kasus Shift Normal / LEMBUR
+            // ── KASUS SHIFT NORMAL ──
             if (session.masuk && session.pulang) {
               if (shiftStart && shiftEnd) {
-                const shiftEndDt = dayjs(session.masuk.format('YYYY-MM-DD') + ' ' + shiftEnd);
+                let shiftEndDt = dayjs(`${session.masuk.format('YYYY-MM-DD')} ${shiftEnd}`);
+                if (shiftEndHour < shiftStartHour) {
+                  // Shift malam (melewati tengah malam)
+                  shiftEndDt = shiftEndDt.add(1, 'day');
+                }
+
                 if (session.pulang.isAfter(shiftEndDt)) {
-                  tipe = 'LEMBUR';
-                  durasi_menit = session.pulang.diff(shiftEndDt, 'minute');
-                  detail = `Pulang jam ${pulangHH} (shift selesai ${shiftEnd})`;
+                  const overMinutes = session.pulang.diff(shiftEndDt, 'minute');
+
+                  // REVISI: "untuk lembur tetap 1 jam setelah absen"
+                  // Kelebihan harus minimal 60 menit (1 jam) baru dihitung lembur!
+                  if (overMinutes >= 60) {
+                    tipe = 'LEMBUR';
+                    durasi_menit = overMinutes;
+                    const jamLembur = Math.floor(overMinutes / 60);
+                    const sisaMnt = overMinutes % 60;
+                    detail = `Pulang jam ${pulangHH} (Lembur ${jamLembur}j ${sisaMnt}m setelah shift selesai ${shiftEnd})`;
+                  } else {
+                    tipe = 'NORMAL';
+                    durasi_menit = 0;
+                    detail = `Pulang jam ${pulangHH} (Kelebihan ${overMinutes} mnt < 1 jam, tidak dihitung lembur)`;
+                  }
                 } else {
                   tipe = 'NORMAL';
                   durasi_menit = 0;
@@ -919,13 +1259,20 @@ async function getLemburFinder(req, res) {
               tipe = 'TIDAK_LENGKAP';
               durasi_menit = 0;
             } else if (session.pulang && !session.masuk) {
-              // Lupa absen masuk, tapi absen pulang tercatat
               if (shiftStart && shiftEnd) {
-                const shiftEndDt = dayjs(session.pulang.format('YYYY-MM-DD') + ' ' + shiftEnd);
+                let shiftEndDt = dayjs(`${session.pulang.format('YYYY-MM-DD')} ${shiftEnd}`);
+                if (shiftEndHour < shiftStartHour) shiftEndDt = shiftEndDt.add(1, 'day');
+
                 if (session.pulang.isAfter(shiftEndDt)) {
-                  tipe = 'LEMBUR';
-                  durasi_menit = session.pulang.diff(shiftEndDt, 'minute');
-                  detail = `Lupa absen masuk, pulang jam ${pulangHH} (shift selesai ${shiftEnd})`;
+                  const overMinutes = session.pulang.diff(shiftEndDt, 'minute');
+                  if (overMinutes >= 60) {
+                    tipe = 'LEMBUR';
+                    durasi_menit = overMinutes;
+                    detail = `Lupa absen masuk, pulang jam ${pulangHH} (Lembur ${Math.floor(overMinutes / 60)}j ${overMinutes % 60}m setelah shift selesai ${shiftEnd})`;
+                  } else {
+                    tipe = 'TIDAK_LENGKAP';
+                    durasi_menit = 0;
+                  }
                 } else {
                   tipe = 'TIDAK_LENGKAP';
                   durasi_menit = 0;
@@ -966,6 +1313,8 @@ async function getLemburFinder(req, res) {
       success: true,
       startDate,
       endDate,
+      patternType,
+      outsideShiftMode: modeOutside,
       data: allResults
     });
 

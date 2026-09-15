@@ -1,8 +1,11 @@
 import { useState, useEffect } from "react";
-import { API_BASE } from "@/config";
+import { authFetch } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Link } from "react-router-dom";
 import { 
   Users, 
   UserCheck, 
@@ -13,7 +16,13 @@ import {
   LogIn, 
   LogOut, 
   MapPin, 
-  UsersRound 
+  UsersRound,
+  CalendarCheck,
+  CheckCircle2,
+  AlertCircle,
+  ArrowRight,
+  ShieldCheck,
+  User
 } from "lucide-react";
 import { 
   BarChart, 
@@ -32,10 +41,15 @@ import {
   AreaChart,
   Area
 } from "recharts";
+import dayjs from "dayjs";
+import 'dayjs/locale/id';
+
+dayjs.locale('id');
 
 const GENDER_COLORS = ["#3b82f6", "#ec4899"]; // Blue (Pria), Pink (Wanita)
 
 export default function Dashboard() {
+  const { user } = useAuth();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -43,7 +57,7 @@ export default function Dashboard() {
     const fetchStats = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`${API_BASE}/api/dashboard/stats`);
+        const response = await authFetch("/api/dashboard/stats");
         const result = await response.json();
         if (result.success) {
           setData(result);
@@ -68,6 +82,192 @@ export default function Dashboard() {
     );
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // 1. TAMPILAN KHUSUS USER BIASA (STAFF) - DASHBOARD PRIBADI
+  // ─────────────────────────────────────────────────────────────
+  if (data.isPersonal) {
+    const { personal } = data;
+    const { today, monthStats, recentActivity } = personal;
+
+    return (
+      <div className="space-y-6 animate-fade-in pb-10">
+        {/* Welcome Header */}
+        <div className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent border border-primary/20 rounded-2xl p-6 shadow-sm">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30 text-xs">
+                  {user?.departemen || "Staff"}
+                </Badge>
+                <span className="text-xs text-muted-foreground">
+                  {dayjs().format('dddd, DD MMMM YYYY')}
+                </span>
+              </div>
+              <h1 className="text-2xl font-bold tracking-tight text-foreground mt-2">
+                Selamat Datang, {user?.nama || "Karyawan"}! 👋
+              </h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Berikut adalah ringkasan kehadiran & riwayat absensi Anda di Rumah Sakit Permata Keluarga.
+              </p>
+            </div>
+            <Button asChild className="self-start md:self-auto gap-2">
+              <Link to="/absensi">
+                Lihat Rekap Absensi
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            </Button>
+          </div>
+        </div>
+
+        {/* 3 Summary Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Status Hari Ini */}
+          <Card className="border border-border/60 shadow-sm">
+            <CardContent className="p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  Kehadiran Hari Ini
+                </span>
+                {today.status === 'LENGKAP' ? (
+                  <Badge className="bg-emerald-600 text-white gap-1">
+                    <CheckCircle2 className="w-3 h-3" /> Lengkap
+                  </Badge>
+                ) : today.status === 'BELUM PULANG' ? (
+                  <Badge className="bg-amber-600 text-white gap-1">
+                    <Clock className="w-3 h-3" /> Masuk Saja
+                  </Badge>
+                ) : (
+                  <Badge variant="secondary" className="text-muted-foreground">
+                    Belum Absen
+                  </Badge>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-border/50">
+                <div>
+                  <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                    <LogIn className="w-3.5 h-3.5 text-emerald-500" /> Jam Masuk
+                  </p>
+                  <p className="text-lg font-bold text-foreground mt-0.5">
+                    {today.masuk || "–"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                    <LogOut className="w-3.5 h-3.5 text-amber-500" /> Jam Pulang
+                  </p>
+                  <p className="text-lg font-bold text-foreground mt-0.5">
+                    {today.pulang || "–"}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Hadir Bulan Ini */}
+          <Card className="border border-border/60 shadow-sm">
+            <CardContent className="p-5 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  Hari Hadir Bulan Ini
+                </span>
+                <p className="text-3xl font-bold text-foreground mt-2">
+                  {monthStats.hariHadir} <span className="text-sm font-normal text-muted-foreground">Hari</span>
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Bulan {dayjs().format('MMMM YYYY')}
+                </p>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-primary/10 text-primary border border-primary/20">
+                <CalendarCheck className="w-6 h-6" />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Total Scan Bulan Ini */}
+          <Card className="border border-border/60 shadow-sm">
+            <CardContent className="p-5 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  Total Scan Mesin
+                </span>
+                <p className="text-3xl font-bold text-foreground mt-2">
+                  {monthStats.totalScan} <span className="text-sm font-normal text-muted-foreground">Kali</span>
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Total tap kartu / fingerprint
+                </p>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 border border-indigo-200 dark:border-indigo-800">
+                <Activity className="w-6 h-6" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Riwayat Absensi Terakhir */}
+        <Card className="border border-border/60 shadow-sm overflow-hidden">
+          <CardHeader className="p-4 border-b border-border/60 flex flex-row items-center justify-between">
+            <CardTitle className="text-base font-bold flex items-center gap-2 text-foreground">
+              <Clock className="w-4 h-4 text-primary" />
+              Riwayat Tap Absensi Terakhir
+            </CardTitle>
+            <Button variant="ghost" size="sm" asChild className="text-xs h-8">
+              <Link to="/absensi">Lihat Selengkapnya</Link>
+            </Button>
+          </CardHeader>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader className="bg-muted/40">
+                <TableRow>
+                  <TableHead className="w-[180px]">Waktu Tap</TableHead>
+                  <TableHead className="w-[120px]">Status</TableHead>
+                  <TableHead>Lokasi Mesin / IP</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recentActivity.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={3} className="h-28 text-center text-muted-foreground">
+                      Belum ada riwayat tap absensi yang tercatat.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  recentActivity.map((r: any) => (
+                    <TableRow key={r.id} className="hover:bg-muted/30">
+                      <TableCell className="font-mono text-xs font-semibold">
+                        {r.waktu}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={
+                            r.status === "masuk"
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300"
+                              : "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300"
+                          }
+                        >
+                          {r.status === "masuk" ? "MASUK" : "PULANG"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-muted-foreground" />
+                        {r.lokasi}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 2. TAMPILAN KHUSUS IT & HRD - DASHBOARD KOMPREHENSIF RS
+  // ─────────────────────────────────────────────────────────────
   const { stats, deptData, statusData, genderData, hourlyData, recentActivity } = data;
 
   const statCards = [
@@ -99,7 +299,7 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Dashboard</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Dashboard Manajemen</h1>
           <p className="text-muted-foreground text-sm">Ringkasan data kepegawaian, kehadiran real-time, & statistik mesin</p>
         </div>
         <div className="flex items-center gap-2 bg-success/10 border border-success/20 px-3.5 py-1.5 rounded-full text-success text-xs font-semibold shadow-card animate-pulse-soft">
@@ -141,38 +341,47 @@ export default function Dashboard() {
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={hourlyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <defs>
-                      <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="hsl(221,83%,53%)" stopOpacity={0.25}/>
-                        <stop offset="95%" stopColor="hsl(221,83%,53%)" stopOpacity={0}/>
+                      <linearGradient id="colorMasuk" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#22c55e" stopOpacity={0.4}/>
+                        <stop offset="95%" stopColor="#22c55e" stopOpacity={0.0}/>
+                      </linearGradient>
+                      <linearGradient id="colorPulang" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4}/>
+                        <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.0}/>
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="hour" tick={{ fontSize: 10 }} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
-                    <Tooltip contentStyle={{ fontSize: '11px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.05)' }} />
-                    <Area type="monotone" dataKey="count" name="Jumlah Scan" stroke="hsl(221,83%,53%)" strokeWidth={2.5} fillOpacity={1} fill="url(#colorCount)" />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                    <XAxis dataKey="hour" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} />
+                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }} 
+                    />
+                    <Area type="monotone" dataKey="masuk" name="Masuk" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill="url(#colorMasuk)" />
+                    <Area type="monotone" dataKey="pulang" name="Pulang" stroke="#f59e0b" strokeWidth={2} fillOpacity={1} fill="url(#colorPulang)" />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
             </CardContent>
           </Card>
 
-          {/* Department Bar Chart */}
+          {/* Top Departments */}
           <Card className="border border-border/50 shadow-card hover:shadow-elevated transition-all duration-200">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
-                <UsersRound className="w-4 h-4 text-primary" /> Karyawan per Departemen (Top 10)
+                <UsersRound className="w-4 h-4 text-primary" /> 10 Departemen Terbanyak
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-2">
-              <div className="h-[240px] w-full">
+              <div className="h-[220px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={deptData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="dept" tick={{ fontSize: 10 }} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
-                    <Tooltip contentStyle={{ fontSize: '11px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.05)' }} />
-                    <Bar dataKey="count" name="Jumlah Pegawai" fill="hsl(221,83%,53%)" radius={[6, 6, 0, 0]} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                    <XAxis dataKey="dept" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} />
+                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }}
+                    />
+                    <Bar dataKey="count" name="Jumlah" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -180,107 +389,164 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        {/* Right: Pie Donut Charts */}
+        {/* Right Side: Doughnuts & Summary (Col span 1) */}
         <div className="space-y-6">
-          {/* Gender Donut */}
+          {/* Gender Ratio */}
           <Card className="border border-border/50 shadow-card hover:shadow-elevated transition-all duration-200">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-bold text-foreground">Distribusi Gender</CardTitle>
+              <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
+                <Users className="w-4 h-4 text-primary" /> Rasio Gender
+              </CardTitle>
             </CardHeader>
-            <CardContent className="flex flex-col items-center justify-center p-6 space-y-4">
-              <div className="h-[150px] w-full">
+            <CardContent>
+              <div className="h-[140px] w-full flex items-center justify-center">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie 
-                      data={genderData} 
-                      cx="50%" 
-                      cy="50%" 
-                      innerRadius={45} 
-                      outerRadius={65} 
+                    <Pie
+                      data={genderData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={45}
+                      outerRadius={65}
                       paddingAngle={3}
                       dataKey="value"
                     >
-                      {genderData.map((_: any, idx: number) => (
-                        <Cell key={`cell-${idx}`} fill={GENDER_COLORS[idx % GENDER_COLORS.length]} />
+                      {genderData.map((_: any, index: number) => (
+                        <Cell key={`cell-${index}`} fill={GENDER_COLORS[index % GENDER_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip contentStyle={{ fontSize: '11px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.05)' }} />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-              <div className="flex justify-center gap-6 text-xs font-semibold w-full border-t border-border pt-4">
-                {genderData.map((d: any, idx: number) => (
-                  <div key={d.name} className="flex items-center gap-1.5 text-muted-foreground">
-                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: GENDER_COLORS[idx] }}></div>
-                    <span>{d.name} ({d.value})</span>
-                  </div>
-                ))}
+              <div className="flex justify-center gap-6 text-xs text-muted-foreground mt-2">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#3b82f6]"></div>
+                  <span>Pria ({genderData[0]?.value || 0})</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#ec4899]"></div>
+                  <span>Wanita ({genderData[1]?.value || 0})</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Status Pegawai */}
+          <Card className="border border-border/50 shadow-card hover:shadow-elevated transition-all duration-200">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
+                <Activity className="w-4 h-4 text-primary" /> Status Pegawai
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[140px] w-full flex items-center justify-center">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={statusData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={45}
+                      outerRadius={65}
+                      paddingAngle={3}
+                      dataKey="value"
+                    >
+                      <Cell fill="#22c55e" />
+                      <Cell fill="#ef4444" />
+                      <Cell fill="#eab308" />
+                    </Pie>
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", borderRadius: "8px", fontSize: "12px" }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex justify-center gap-4 text-xs text-muted-foreground mt-2">
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full bg-[#22c55e]"></div>
+                  <span>Aktif</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full bg-[#ef4444]"></div>
+                  <span>Non-Aktif</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full bg-[#eab308]"></div>
+                  <span>Cuti</span>
+                </div>
               </div>
             </CardContent>
           </Card>
         </div>
       </div>
 
-      {/* Recent Activity Table */}
-      <Card className="border border-border/50 shadow-card hover:shadow-elevated transition-all duration-200">
-        <CardHeader className="pb-3 border-b border-border flex flex-row items-center justify-between">
-          <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
-            <Activity className="w-4 h-4 text-success" /> Aktivitas Absensi Terbaru
-          </CardTitle>
-          <span className="text-[10px] bg-muted px-2.5 py-1 rounded-full font-bold uppercase text-muted-foreground tracking-wider border border-border">
-            10 Logs Terakhir
-          </span>
+      {/* Realtime Recent Activity Feed */}
+      <Card className="border border-border/50 shadow-card hover:shadow-elevated transition-all duration-200 overflow-hidden">
+        <CardHeader className="bg-muted/30 border-b border-border/50 pb-3 flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
+              <Activity className="w-4 h-4 text-primary" /> Aktivitas Absensi Terkini
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">Log tap kartu / sidik jari yang masuk secara real-time</p>
+          </div>
+          <Badge variant="outline" className="bg-background text-xs">
+            10 Transaksi Terakhir
+          </Badge>
         </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/30 border-b border-border">
-                  <TableHead className="w-[120px] font-bold text-xs text-muted-foreground">NIK</TableHead>
-                  <TableHead className="font-bold text-xs text-muted-foreground">Nama Pegawai</TableHead>
-                  <TableHead className="font-bold text-xs text-muted-foreground">Departemen</TableHead>
-                  <TableHead className="text-center font-bold text-xs text-muted-foreground">Waktu Tap</TableHead>
-                  <TableHead className="text-center font-bold text-xs text-muted-foreground">Status</TableHead>
-                  <TableHead className="text-center font-bold text-xs text-muted-foreground">Lokasi Mesin</TableHead>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-b border-border/50 bg-muted/10 text-xs">
+                <TableHead className="w-[100px]">PIN / NIK</TableHead>
+                <TableHead>Nama Karyawan</TableHead>
+                <TableHead>Departemen</TableHead>
+                <TableHead>Waktu Log</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Mesin</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody className="text-xs">
+              {recentActivity.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-6 text-muted-foreground">
+                    Belum ada aktivitas transaksi absensi hari ini.
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {recentActivity.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground text-sm">
-                      Belum ada data tap absensi masuk hari ini.
+              ) : (
+                recentActivity.map((r: any) => (
+                  <TableRow key={r.id} className="hover:bg-muted/40 transition-colors">
+                    <TableCell className="font-mono font-medium">{r.pin}</TableCell>
+                    <TableCell className="font-semibold text-foreground">{r.nama}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary" className="text-[10px] font-normal">
+                        {r.departemen}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-mono text-muted-foreground">{r.waktu}</TableCell>
+                    <TableCell>
+                      <Badge 
+                        className={`text-[10px] uppercase font-bold tracking-wider ${
+                          r.status === 'masuk' 
+                            ? 'bg-success/15 text-success hover:bg-success/20 border-success/30' 
+                            : 'bg-warning/15 text-warning hover:bg-warning/20 border-warning/30'
+                        }`}
+                        variant="outline"
+                      >
+                        {r.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground flex items-center gap-1">
+                      <MapPin className="w-3 h-3 text-primary" /> {r.lokasi}
                     </TableCell>
                   </TableRow>
-                ) : (
-                  recentActivity.map((log: any) => (
-                    <TableRow key={log.id} className="hover:bg-muted/10 border-b border-border transition-colors">
-                      <TableCell className="font-mono text-xs font-semibold">{log.pin}</TableCell>
-                      <TableCell className="font-semibold text-xs text-foreground">{log.nama}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{log.departemen}</TableCell>
-                      <TableCell className="text-center text-xs font-mono">{log.waktu.split(' ')[1]}</TableCell>
-                      <TableCell className="text-center">
-                        <Badge 
-                          variant="outline" 
-                          className={`text-[9px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${
-                            log.status === "masuk" 
-                              ? "bg-success/10 text-success border-success/20" 
-                              : "bg-warning/10 text-warning border-warning/20"
-                          }`}
-                        >
-                          {log.status === "masuk" ? <LogIn className="w-2.5 h-2.5 inline mr-1" /> : <LogOut className="w-2.5 h-2.5 inline mr-1" />}
-                          {log.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-center text-xs font-medium text-muted-foreground flex items-center justify-center gap-1">
-                        <MapPin className="w-3 h-3 text-muted-foreground/60" /> {log.lokasi}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </Card>
     </div>
   );

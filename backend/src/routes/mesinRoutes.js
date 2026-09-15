@@ -45,11 +45,13 @@ router.get('/mesin/raw/stats',  getRawLogStats);
 // Detail satu record raw log
 router.get('/mesin/raw/:id',    getRawLogDetail);
 
-// Hapus data lama (purge)
-router.delete('/mesin/raw/purge', purgeRawLog);
+const { authMiddleware, requireRole } = require('../middleware/authMiddleware');
 
-// Sinkronisasi Database Manual via TCP ZKLib
-router.post('/mesin/sync',        startSync);
-router.get('/mesin/sync/status',  getSyncStatus);
+// Hapus data lama (purge) - KHUSUS IT
+router.delete('/mesin/raw/purge', authMiddleware, requireRole('IT'), purgeRawLog);
+
+// Sinkronisasi Database Manual via TCP ZKLib - KHUSUS IT
+router.post('/mesin/sync',        authMiddleware, requireRole('IT'), startSync);
+router.get('/mesin/sync/status',  authMiddleware, requireRole('IT'), getSyncStatus);
 
 module.exports = router;

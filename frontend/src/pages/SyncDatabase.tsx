@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { API_BASE } from "@/config";
+import { authFetch } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
@@ -83,7 +83,7 @@ export default function SyncDatabase() {
   // Fetch status sinkronisasi dari backend
   const fetchStatus = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/mesin/sync/status`);
+      const response = await authFetch('/api/mesin/sync/status');
       if (!response.ok) throw new Error("Gagal mengambil status");
       const result = await response.json();
       if (result.success) {
@@ -116,7 +116,7 @@ export default function SyncDatabase() {
   const handleStartSync = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE}/api/mesin/sync`, {
+      const response = await authFetch('/api/mesin/sync', {
         method: "POST",
       });
       const result = await response.json();

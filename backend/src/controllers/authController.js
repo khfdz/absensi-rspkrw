@@ -61,12 +61,15 @@ exports.login = async (req, res) => {
       bidang: '-' 
     };
 
+    const { getUserRole } = require('../utils/roleHelper');
+    const effectiveRole = await getUserRole(nik, pegawai.departemen);
+
     // 3. Generate JWT Token
     const token = jwt.sign(
       { 
         nik: nik, 
         nama: pegawai.nama,
-        role: nik.startsWith('ADM') ? 'Admin' : 'Staff',
+        role: effectiveRole,
         departemen: pegawai.departemen,
         jnj_jabatan: pegawai.jnj_jabatan,
         bidang: pegawai.bidang,
@@ -83,7 +86,7 @@ exports.login = async (req, res) => {
       user: {
         nik: nik,
         nama: pegawai.nama,
-        role: nik.startsWith('ADM') ? 'Admin' : 'Staff',
+        role: effectiveRole,
         departemen: pegawai.departemen,
         jnj_jabatan: pegawai.jnj_jabatan,
         bidang: pegawai.bidang,

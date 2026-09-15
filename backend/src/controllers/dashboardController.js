@@ -7,6 +7,70 @@ const dayjs = require('dayjs');
 exports.getDashboardStats = async (req, res) => {
   try {
     const today = dayjs().format('YYYY-MM-DD');
+    const userRole = req.user?.role || 'STAFF';
+    const userNik = req.user?.nik;
+    const isPrivileged = userRole === 'IT' || userRole === 'HRD';
+
+    // JIKA USER ADALAH STAFF: Kembalikan statistik personal (tidak melihat data karyawan lain)
+    if (!isPrivileged) {
+      // 1. Log hari ini
+      const [todayLogs] = await pool.query(
+        `SELECT id, pin, waktu, status, ip_source, device_id 
+         FROM absensi 
+         WHERE pin = ? AND DATE(waktu) = ? 
+         ORDER BY waktu ASC`,
+        [userNik, today]
+      );
+
+      // 2. Kehadiran bulan ini
+      const startOfMonth = dayjs().startOf('month').format('YYYY-MM-DD');
+      const [monthLogs] = await pool.query(
+        `SELECT COUNT(DISTINCT DATE(waktu)) as total_hari, COUNT(*) as total_scan 
+         FROM absensi 
+         WHERE pin = ? AND DATE(waktu) >= ?`,
+        [userNik, startOfMonth]
+      );
+
+      // 3. 10 riwayat absensi terakhir user
+      const [userRecent] = await pool.query(
+        `SELECT id, pin, waktu, status, ip_source, device_id 
+         FROM absensi 
+         WHERE pin = ? 
+         ORDER BY waktu DESC LIMIT 10`,
+        [userNik]
+      );
+
+      const masukHariIni = todayLogs.find(l => l.status === 'masuk');
+      const pulangHariIni = todayLogs.filter(l => l.status === 'pulang').pop();
+
+      return res.status(200).json({
+        success: true,
+        isPersonal: true,
+        user: req.user,
+        personal: {
+          today: {
+            masuk: masukHariIni ? dayjs(masukHariIni.waktu).format('HH:mm:ss') : null,
+            pulang: pulangHariIni ? dayjs(pulangHariIni.waktu).format('HH:mm:ss') : null,
+            status: masukHariIni && pulangHariIni ? 'LENGKAP' : (masukHariIni ? 'BELUM PULANG' : 'BELUM MASUK')
+          },
+          monthStats: {
+            hariHadir: monthLogs[0]?.total_hari || 0,
+            totalScan: monthLogs[0]?.total_scan || 0
+          },
+          recentActivity: userRecent.map(l => ({
+            id: l.id,
+            pin: l.pin,
+            nama: req.user?.nama || 'Saya',
+            departemen: req.user?.departemen || '-',
+            waktu: dayjs(l.waktu).format('YYYY-MM-DD HH:mm:ss'),
+            status: l.status,
+            lokasi: (l.ip_source === '192.168.10.150' || l.device_id == 1) 
+              ? 'Basement' 
+              : (l.ip_source === '192.168.10.185' ? 'Poli Lt 2' : (l.ip_source || `Mesin ${l.device_id}`))
+          }))
+        }
+      });
+    }
 
     // 1. Total Pegawai (dari SIKKRW - server 192.168.10.11)
     const [pegawaiStats] = await sikkPool.query(`

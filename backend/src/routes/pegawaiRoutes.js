@@ -8,7 +8,6 @@ const authMiddleware = require('../middleware/authMiddleware');
  * @desc Mendapatkan data pegawai dari SIKKRW
  * @access Private (but let's make it public for now to test)
  */
-router.get('/', pegawaiController.getPegawai);
-router.get('/sikk-users', pegawaiController.getSikkUsers);
+router.get('/', authMiddleware, pegawaiController.getPegawai);
 
 module.exports = router;

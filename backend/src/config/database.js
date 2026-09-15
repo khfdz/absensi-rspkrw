@@ -39,7 +39,19 @@ async function testConnection() {
     const connSikk = await sikkPool.getConnection();
     console.log(`✅ MySQL SIKKRW terhubung: ${process.env.SIKK_DB_HOST}:${process.env.SIKK_DB_PORT || 3306} → ${process.env.SIKK_DB_NAME}`);
     connSikk.release();
-    
+
+    // Auto-create tabel user_roles di database absensi jika belum ada
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS user_roles (
+        nik VARCHAR(50) NOT NULL PRIMARY KEY,
+        role ENUM('IT', 'HRD', 'STAFF') NOT NULL DEFAULT 'STAFF',
+        keterangan VARCHAR(255) NULL,
+        updated_by VARCHAR(50) NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     return true;
   } catch (err) {
     console.error('❌ Gagal koneksi MySQL:', err.message);
