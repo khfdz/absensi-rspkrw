@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, ClipboardList, Clock, Building2, PenSquare, CheckSquare, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, ClipboardList, Clock, Building2, ShieldCheck, Timer, RefreshCw, ListCollapse } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -16,14 +16,12 @@ import {
 
 const items = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Data Pegawai", url: "/pegawai", icon: Users },
-  { title: "Data Absensi", url: "/absensi", icon: ClipboardList },
-  { title: "Rekap Harian", url: "/rekap", icon: Building2 },
+  { title: "Data Absensi", url: "/absensi", icon: ListCollapse },
   { title: "Laporan Departemen", url: "/laporan-departemen", icon: ClipboardList },
-  { title: "Form Lembur", url: "/lembur", icon: PenSquare },
-  { title: "Approval Lembur", url: "/approval-lembur", icon: CheckSquare },
   { title: "User SIKKRW", url: "/sikk-users", icon: ShieldCheck },
+  { title: "Lembur Finder", url: "/lembur-finder", icon: Timer },
   { title: "Live Clock-In", url: "/clock-in", icon: Clock },
+  { title: "Sinkronisasi", url: "/sync", icon: RefreshCw },
 ];
 
 export function AppSidebar() {
@@ -32,28 +30,21 @@ export function AppSidebar() {
   const location = useLocation();
   const { user } = useAuth();
 
-  const filteredItems = items.filter(item => {
-    if (item.url === "/approval-lembur") {
-       const isHRD = user?.role === 'Admin' || (user?.departemen && (user.departemen.includes('SDM') || user.departemen.includes('HRD') || user.departemen.includes('Personalia')));
-       const isSupervisor = user?.jnj_jabatan && user.jnj_jabatan !== '-' && user.jnj_jabatan !== 'STAFF';
-       return isHRD || isSupervisor;
-    }
-    return true;
-  });
+  const filteredItems = items;
 
   return (
-    <Sidebar collapsible="icon" className="gradient-sidebar border-r-0">
+    <Sidebar collapsible="icon" className="gradient-sidebar border-r border-sidebar-border">
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel className="px-4 py-6 mb-2">
+          <SidebarGroupLabel className="px-4 py-7 mb-2 border-b border-sidebar-border">
             <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-sidebar-primary/20">
-                <Building2 className="w-5 h-5 text-sidebar-primary" />
+              <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-white p-1.5 shadow-card shrink-0">
+                <img src="/image/logoBersih.png" alt="Logo" className="w-full h-full object-contain" />
               </div>
               {!collapsed && (
-                <div className="leading-tight">
-                  <p className="text-sm font-semibold text-sidebar-foreground">RS Permata</p>
-                  <p className="text-xs text-sidebar-muted">HR System</p>
+                <div className="leading-tight animate-scale-in">
+                  <p className="text-sm font-bold text-sidebar-foreground tracking-tight">RS Permata Keluarga</p>
+                  <p className="text-xs text-sidebar-muted font-medium">HR System</p>
                 </div>
               )}
             </div>

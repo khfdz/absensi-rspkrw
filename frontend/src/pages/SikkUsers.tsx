@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { API_BASE } from "@/config";
 import { 
   Table, TableBody, TableCell, TableHead, 
   TableHeader, TableRow 
@@ -52,7 +53,7 @@ const SikkUsers = () => {
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      const res = await fetch("http://localhost:3103/api/pegawai/sikk-users");
+      const res = await fetch(`${API_BASE}/api/pegawai/sikk-users`);
       const result = await res.json();
       if (result.success) {
         setUsers(result.data);
@@ -220,18 +221,21 @@ const SikkUsers = () => {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-6 animate-fade-in pb-10">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-800">User SIKKRW</h1>
-          <p className="text-slate-500 font-medium">Monitoring Akun & Hak Akses Sistem Informasi Khanza.</p>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
+            <Shield className="w-6 h-6 text-primary animate-scale-in" />
+            User SIKKRW
+          </h1>
+          <p className="text-muted-foreground text-sm font-medium">Monitoring Akun & Hak Akses Sistem Informasi Khanza.</p>
         </div>
         
         <div className="flex items-center gap-2">
           <Button 
             onClick={exportSummaryExcel} 
             variant="default" 
-            className="gap-2 bg-blue-600 hover:bg-blue-700 shadow-sm"
+            className="gap-2 bg-primary text-primary-foreground hover:opacity-90 transition-all rounded-2xl font-bold shadow-card h-11 px-5"
           >
             <Settings2 className="w-4 h-4" />
             Export Ringkas
@@ -239,7 +243,7 @@ const SikkUsers = () => {
           <Button 
             onClick={exportToExcel} 
             variant="outline" 
-            className="gap-2 bg-white hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-all shadow-sm"
+            className="gap-2 bg-card border border-border hover:bg-success/5 hover:text-success hover:border-success/30 transition-all duration-200 rounded-2xl font-bold shadow-card h-11 px-5"
           >
             <Download className="w-4 h-4" />
             Export Lengkap
@@ -248,24 +252,24 @@ const SikkUsers = () => {
       </div>
 
       {/* Filters & Search */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 bg-card p-4 rounded-2xl border border-border shadow-card hover:shadow-elevated transition-all duration-200 animate-slide-up">
         <div className="md:col-span-5 relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input 
             placeholder="Cari NIK, Nama, atau Dept..." 
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-10 h-10 border-slate-200 focus:border-blue-400"
+            className="pl-11 h-11 border-border focus:ring-ring"
           />
         </div>
         
         <div className="md:col-span-4 flex items-center gap-2">
-          <Filter className="w-4 h-4 text-slate-400 shrink-0" />
+          <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
           <Select value={deptFilter} onValueChange={setDeptFilter}>
-            <SelectTrigger className="h-10 border-slate-200">
+            <SelectTrigger className="h-11 border-border rounded-2xl focus:ring-ring">
               <SelectValue placeholder="Filter Departemen" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="rounded-2xl border-border shadow-float">
               <SelectItem value="all">Semua Departemen</SelectItem>
               {departments.map(d => (
                 <SelectItem key={d} value={d}>{d}</SelectItem>
@@ -273,14 +277,14 @@ const SikkUsers = () => {
             </SelectContent>
           </Select>
         </div>
-
+ 
         <div className="md:col-span-3 flex justify-end">
            <Button 
-             variant="ghost" 
+             variant="outline" 
              onClick={toggleSort}
-             className={`h-10 gap-2 w-full justify-between px-4 border ${sortOrder !== 'none' ? 'bg-blue-50 text-blue-600 border-blue-200' : 'border-slate-200 text-slate-600'}`}
+             className={`h-11 rounded-2xl gap-2 w-full justify-between px-4 border transition-all duration-200 ${sortOrder !== 'none' ? 'bg-primary/10 text-primary border-primary/20 hover:bg-primary/15' : 'bg-card border-border hover:bg-accent'}`}
            >
-             <span className="text-sm">Urutkan Dept</span>
+             <span className="text-sm font-semibold">Urutkan Dept</span>
              {sortOrder === 'none' && <ArrowUpDown className="w-4 h-4 opacity-50" />}
              {sortOrder === 'asc' && <ArrowUp className="w-4 h-4" />}
              {sortOrder === 'desc' && <ArrowDown className="w-4 h-4" />}
@@ -288,72 +292,72 @@ const SikkUsers = () => {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="bg-card rounded-2xl border border-border shadow-card hover:shadow-elevated transition-all duration-200 overflow-hidden animate-slide-up">
         <div className="overflow-x-auto">
           <Table>
-            <TableHeader className="bg-slate-50/50">
+            <TableHeader className="bg-muted/30 border-b border-border">
               <TableRow>
-                <TableHead className="w-12">No</TableHead>
-                <TableHead className="w-40">NIK</TableHead>
-                <TableHead>Nama Pegawai</TableHead>
-                <TableHead className="cursor-pointer hover:text-blue-600" onClick={toggleSort}>
+                <TableHead className="w-12 font-bold text-xs text-muted-foreground">No</TableHead>
+                <TableHead className="w-40 font-bold text-xs text-muted-foreground">NIK</TableHead>
+                <TableHead className="font-bold text-xs text-muted-foreground">Nama Pegawai</TableHead>
+                <TableHead className="cursor-pointer hover:text-primary font-bold text-xs text-muted-foreground" onClick={toggleSort}>
                   <div className="flex items-center gap-1.5">
                     Departemen
-                    {sortOrder !== 'none' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
+                    {sortOrder !== 'none' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-primary" /> : <ArrowDown className="w-3 h-3 text-primary" />)}
                   </div>
                 </TableHead>
-                <TableHead>Password</TableHead>
-                <TableHead className="text-right">Aksi</TableHead>
+                <TableHead className="font-bold text-xs text-muted-foreground">Password</TableHead>
+                <TableHead className="text-right font-bold text-xs text-muted-foreground">Aksi</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 Array.from({ length: 8 }).map((_, i) => (
-                  <TableRow key={i}>
+                  <TableRow key={i} className="border-b border-border">
                     {Array.from({ length: 6 }).map((_, j) => (
-                      <TableCell key={j}><div className="h-4 bg-slate-100 animate-pulse rounded"></div></TableCell>
+                      <TableCell key={j}><div className="h-4 bg-muted animate-pulse rounded"></div></TableCell>
                     ))}
                   </TableRow>
                 ))
               ) : processedUsers.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-32 text-center text-slate-500">
+                  <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
                     Data tidak ditemukan.
                   </TableCell>
                 </TableRow>
               ) : (
                 processedUsers.map((user, idx) => (
-                  <TableRow key={idx} className="hover:bg-slate-50/50 transition-colors group">
-                    <TableCell className="text-slate-400 text-[11px]">{idx + 1}</TableCell>
+                  <TableRow key={idx} className="hover:bg-muted/10 border-b border-border transition-colors group">
+                    <TableCell className="text-muted-foreground text-[11px] font-medium">{idx + 1}</TableCell>
                     <TableCell>
-                      <span className="font-mono text-sm font-bold text-slate-700 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">{user.nik_decrypted || '---'}</span>
+                      <span className="font-mono text-xs font-bold text-foreground bg-muted px-2 py-0.5 rounded-lg border border-border">{user.nik_decrypted || '---'}</span>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <User className="w-3.5 h-3.5 text-blue-500" />
-                        <span className="font-semibold text-slate-800">{user.nama || '---'}</span>
+                        <User className="w-3.5 h-3.5 text-primary" />
+                        <span className="font-semibold text-foreground text-xs">{user.nama || '---'}</span>
                       </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <Building className="w-3.5 h-3.5 text-slate-400" />
-                        <span className="text-sm text-slate-600">{user.departemen || '---'}</span>
+                        <Building className="w-3.5 h-3.5 text-muted-foreground/60" />
+                        <span className="text-xs text-muted-foreground font-medium">{user.departemen || '---'}</span>
                       </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2 font-mono text-xs">
                         {showPasswords[idx] ? (
-                          <span className="text-slate-800 bg-blue-50 text-blue-700 font-semibold px-2 py-0.5 rounded border border-blue-100">{user.password_decrypted}</span>
+                          <span className="text-primary bg-primary/10 font-bold px-2.5 py-0.5 rounded-lg border border-primary/20">{user.password_decrypted}</span>
                         ) : (
-                          <span className="text-slate-300">••••••••</span>
+                          <span className="text-muted-foreground/45 tracking-widest font-sans font-bold">••••••••</span>
                         )}
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-6 w-6 ml-0.5 hover:bg-blue-50"
+                          className="h-6 w-6 ml-0.5 hover:bg-primary/10 hover:text-primary transition-all duration-200"
                           onClick={() => togglePassword(idx)}
                         >
-                          {showPasswords[idx] ? <EyeOff className="w-3 h-3 text-blue-600" /> : <Eye className="w-3 h-3 text-slate-400" />}
+                          {showPasswords[idx] ? <EyeOff className="w-3 h-3 text-primary" /> : <Eye className="w-3 h-3 text-muted-foreground/70" />}
                         </Button>
                       </div>
                     </TableCell>
@@ -361,7 +365,7 @@ const SikkUsers = () => {
                        <Button 
                          variant="outline" 
                          size="sm" 
-                         className="text-xs h-8 gap-1.5 bg-white group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-600 transition-all"
+                         className="text-xs h-9 gap-1.5 bg-card border border-border hover:bg-primary hover:text-primary-foreground hover:border-primary transition-all duration-200 rounded-xl font-bold shadow-card"
                          onClick={() => setSelectedUser(user)}
                        >
                          <Settings2 className="w-3.5 h-3.5" />
@@ -378,42 +382,46 @@ const SikkUsers = () => {
 
       {/* Dialog Hak Akses */}
       <Dialog open={!!selectedUser} onOpenChange={(open) => !open && setSelectedUser(null)}>
-        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
+        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col rounded-2xl border border-border bg-card shadow-float">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Settings2 className="w-5 h-5 text-blue-600" />
+            <DialogTitle className="flex items-center gap-2 text-foreground font-bold">
+              <Settings2 className="w-5 h-5 text-primary" />
               Detail Hak Akses: {selectedUser?.nama}
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-muted-foreground">
               NIK: {selectedUser?.nik_decrypted} | Dept: {selectedUser?.departemen}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex items-center justify-between mt-2">
+          <div className="flex items-center justify-between mt-2 gap-4">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input 
                 placeholder="Cari hak akses..." 
                 value={detailSearch}
                 onChange={(e) => setDetailSearch(e.target.value)}
-                className="pl-10 h-9 text-sm"
+                className="pl-11 h-11 text-sm border-border"
               />
             </div>
-            <div className="ml-4 px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-[10px] font-bold border border-blue-100 whitespace-nowrap">
+            <div className="px-3.5 py-1.5 bg-primary/10 text-primary rounded-full text-[10px] font-bold border border-primary/20 whitespace-nowrap uppercase tracking-wider">
               {getPermissions(selectedUser).length} / {selectedUser ? Object.keys(selectedUser).length - 6 : 0} ITEM
             </div>
           </div>
 
-          <div className="flex-1 mt-4 pr-2 border-t border-slate-100 pt-4 overflow-y-auto custom-scrollbar" style={{ maxHeight: '60vh' }}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1">
+          <div className="flex-1 mt-4 pr-2 border-t border-border pt-4 overflow-y-auto custom-scrollbar" style={{ maxHeight: '60vh' }}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1.5">
               {selectedUser && getPermissions(selectedUser).map(([key, value]) => (
-                <div key={key} className="flex items-center justify-between py-1 border-b border-slate-50/50 group hover:bg-slate-50 px-1 rounded transition-colors">
-                  <span className="text-[10px] font-medium text-slate-500 uppercase tracking-tight truncate mr-2" title={key}>
+                <div key={key} className="flex items-center justify-between py-1.5 border-b border-border/40 group hover:bg-muted/40 px-2 rounded-lg transition-colors">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider truncate mr-2" title={key}>
                     {key.replace(/_/g, ' ')}
                   </span>
                   <Badge 
                     variant={value === 'true' ? 'default' : 'secondary'}
-                    className={`text-[9px] py-0 px-1.5 h-4 min-w-[35px] justify-center ${value === 'true' ? 'bg-emerald-500' : 'bg-slate-100 text-slate-400'}`}
+                    className={`text-[9px] py-0 px-2 h-5 min-w-[40px] justify-center rounded-md font-bold ${
+                      value === 'true' 
+                        ? 'bg-success/15 text-success border border-success/20 hover:bg-success/20 shadow-card' 
+                        : 'bg-muted text-muted-foreground/60 border border-border/80 hover:bg-muted shadow-sm'
+                    }`}
                   >
                     {value === 'true' ? 'YES' : 'NO'}
                   </Badge>
@@ -423,8 +431,8 @@ const SikkUsers = () => {
             <div className="h-10"></div> {/* Spacer bottom */}
           </div>
           
-          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-end">
-            <Button variant="secondary" onClick={() => setSelectedUser(null)}>
+          <div className="mt-4 pt-4 border-t border-border flex justify-end">
+            <Button variant="secondary" onClick={() => setSelectedUser(null)} className="h-11 px-6 rounded-2xl font-bold">
               Tutup
             </Button>
           </div>

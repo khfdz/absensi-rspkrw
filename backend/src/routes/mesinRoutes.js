@@ -9,6 +9,11 @@ const {
   purgeRawLog,
 } = require('../controllers/rawMesinController');
 
+const {
+  startSync,
+  getSyncStatus,
+} = require('../controllers/syncController');
+
 // ============================================================
 // ENDPOINT MESIN — dihit langsung oleh Solution X100C
 // ============================================================
@@ -42,5 +47,9 @@ router.get('/mesin/raw/:id',    getRawLogDetail);
 
 // Hapus data lama (purge)
 router.delete('/mesin/raw/purge', purgeRawLog);
+
+// Sinkronisasi Database Manual via TCP ZKLib
+router.post('/mesin/sync',        startSync);
+router.get('/mesin/sync/status',  getSyncStatus);
 
 module.exports = router;

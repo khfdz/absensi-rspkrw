@@ -1,7 +1,0 @@
-TABLES FOUND:
-- absensi
-- absensi_log_error
-- device_mesin
-- karyawan
-- raw_mesin_log
-- v_rekap_harian

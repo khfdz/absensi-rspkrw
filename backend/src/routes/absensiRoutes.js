@@ -7,7 +7,7 @@ const {
   getRekapHarian,
   getLaporanAbsenKB,
   upsertJadwalDinas,
-  migrateIndex,
+  getLemburFinder,
 } = require('../controllers/absensiController');
 
 // ----------------------------------------------------------
@@ -25,5 +25,6 @@ router.get('/absensi/realtime', getRealtimeAbsensi);  // polling 60 detik terakh
 router.get('/absensi/rekap',      getRekapHarian);      // rekap harian per karyawan
 router.get('/absensi/laporan-kb', getLaporanAbsenKB);   // Laporan khusus Kamar Bayi
 router.post('/absensi/jadwal-dinas', upsertJadwalDinas); // Update atau Simpan Shift
+router.get('/absensi/lembur-finder', getLemburFinder);  // Cari Lembur & On-Call per Pegawai
 
 module.exports = router;

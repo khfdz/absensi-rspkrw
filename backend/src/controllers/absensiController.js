@@ -29,9 +29,11 @@ async function receiveAbsensi(req, res) {
 
         const [dup] = await pool.execute(
           `SELECT id FROM absensi
-           WHERE pin = ? AND ABS(TIMESTAMPDIFF(SECOND, waktu, ?)) < 30
+           WHERE pin = ?
+             AND waktu >= DATE_SUB(?, INTERVAL 30 SECOND)
+             AND waktu <= DATE_ADD(?, INTERVAL 30 SECOND)
            LIMIT 1`,
-          [record.pin, record.waktu]
+          [record.pin, record.waktu, record.waktu]
         );
         if (dup.length > 0) {
           console.log(`ℹ️  Duplikat diabaikan — PIN: ${record.pin}`);
@@ -697,7 +699,283 @@ async function upsertJadwalDinas(req, res) {
   }
 }
 
+// ============================================================
+// GET /api/absensi/lembur-finder — Cari Lembur & On-Call per Pegawai
+// Query: ?nama=dhika&startDate=2026-04-25&endDate=2026-05-25
+// ============================================================
+async function getLemburFinder(req, res) {
+  try {
+    const { nama, startDate, endDate } = req.query;
+
+    if (!nama || !startDate || !endDate) {
+      return res.status(400).json({ success: false, message: 'nama, startDate, dan endDate wajib diisi' });
+    }
+
+    // 1. Cari pegawai yang cocok dengan nama (batasi 10 hasil agar IN() tidak terlalu besar)
+    const [pegawaiRows] = await sikkPool.query(
+      `SELECT nik, nama, departemen FROM pegawai WHERE nama LIKE ? ORDER BY nama ASC LIMIT 10`,
+      [`%${nama.trim()}%`]
+    );
+
+    if (pegawaiRows.length === 0) {
+      return res.json({ success: true, pegawai: [], data: [] });
+    }
+
+    const pins = pegawaiRows.map(p => p.nik);
+
+    // 2. Ambil semua log absensi untuk pegawai tersebut dalam rentang tanggal
+    // FIX PERFORMA: Gunakan range waktu langsung (bukan DATE(waktu)) agar MySQL bisa pakai index!
+    // DATE(waktu) BETWEEN => full table scan (lambat)
+    // waktu >= startDate AND waktu < endDate+1 => index seek (cepat)
+    const endDatePlus = dayjs(endDate).add(2, 'day').format('YYYY-MM-DD'); // +2 untuk buffer shift malam
+
+    const [absensiRows] = await pool.query(
+      `SELECT pin, waktu, status, ip_source, device_id
+       FROM absensi
+       WHERE pin IN (?)
+         AND waktu >= ?
+         AND waktu < ?
+       ORDER BY waktu ASC`,
+      [pins, `${startDate} 00:00:00`, `${endDatePlus} 00:00:00`]
+    );
+
+    // 3. Kelompokkan log per pegawai per tanggal
+    const pegawaiMap = {};
+    pegawaiRows.forEach(p => { pegawaiMap[p.nik] = p; });
+
+    // Buat map log per pin
+    const logsByPin = {};
+    pins.forEach(pin => { logsByPin[pin] = []; });
+    absensiRows.forEach(r => {
+      if (logsByPin[r.pin]) logsByPin[r.pin].push(r);
+    });
+
+    // 4. Untuk setiap pegawai, proses per hari dalam rentang
+    const allResults = [];
+
+    for (const p of pegawaiRows) {
+      const logs = logsByPin[p.nik] || [];
+      const dailyResults = [];
+
+      let cursor = dayjs(startDate);
+      const end = dayjs(endDate);
+
+      while (cursor.isBefore(end, 'day') || cursor.isSame(end, 'day')) {
+        const tgl = cursor.format('YYYY-MM-DD');
+        const dayOfWeek = cursor.day(); // 0=Minggu, 1=Senin, ..., 6=Sabtu
+
+        // Shift default IT
+        let shiftStart = null;
+        let shiftEnd   = null;
+        let shiftLabel = '';
+
+        if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+          shiftStart = '08:00';
+          shiftEnd   = '16:00';
+          shiftLabel = 'Senin-Jumat 08:00-16:00';
+        } else if (dayOfWeek === 6) {
+          shiftStart = '08:00';
+          shiftEnd   = '13:00';
+          shiftLabel = 'Sabtu 08:00-13:00';
+        } else {
+          // Minggu - hari libur, tidak ada shift
+          shiftLabel = 'Libur (Minggu)';
+        }
+
+        // Ambil log untuk hari ini (mulai jam 05:00) s/d besok pagi (sebelum jam 05:00) untuk pairing shift & on-call
+        const tglBerikut = cursor.add(1, 'day').format('YYYY-MM-DD');
+        const startLimit = dayjs(`${tgl} 05:00:00`);
+        const endLimit   = dayjs(`${tglBerikut} 05:00:00`);
+
+        const dayTaps = logs
+          .map(l => dayjs(l.waktu))
+          .filter(d => (d.isSame(startLimit) || d.isAfter(startLimit)) && d.isBefore(endLimit))
+          .sort((a, b) => a.diff(b));
+
+        if (dayTaps.length === 0) {
+          // Tidak ada absensi hari ini
+          cursor = cursor.add(1, 'day');
+          continue;
+        }
+
+        // Hilangkan duplikat tap dalam rentang 3 menit (misal tap berkali-kali)
+        const uniqueTaps = [];
+        for (const tap of dayTaps) {
+          if (uniqueTaps.length === 0 || tap.diff(uniqueTaps[uniqueTaps.length - 1], 'minute') >= 3) {
+            uniqueTaps.push(tap);
+          }
+        }
+
+        // Bangun session kerja/on-call menggunakan state machine berbasis gap waktu
+        const sessions = [];
+        let currentSession = null;
+
+        for (const tap of uniqueTaps) {
+          const hour = tap.hour();
+          const isSunday = dayOfWeek === 0;
+          const isOnCallCheck = isSunday || 
+            (dayOfWeek >= 1 && dayOfWeek <= 5 && hour >= 17) || 
+            (dayOfWeek === 6 && hour >= 14);
+
+          if (currentSession === null) {
+            // Cek apakah bisa digabungkan dengan session sebelumnya jika gap <= 2 jam (misal istirahat makan)
+            if (sessions.length > 0) {
+              const lastSession = sessions[sessions.length - 1];
+              if (lastSession.pulang && tap.diff(lastSession.pulang, 'hour') <= 2) {
+                currentSession = sessions.pop();
+                currentSession.pulang = null;
+                continue;
+              }
+            }
+            // Mulai session baru
+            currentSession = { masuk: tap, pulang: null, isOnCall: isOnCallCheck };
+          } else {
+            // Sudah ada session aktif, pasangkan tap ini sebagai pulang
+            const durationHours = tap.diff(currentSession.masuk, 'hour');
+            if (durationHours > 14) {
+              // Jika terlalu lama (>14 jam), kemungkinan lupa absen pulang pada session sebelumnya
+              sessions.push(currentSession);
+              currentSession = { masuk: tap, pulang: null, isOnCall: isOnCallCheck };
+            } else {
+              currentSession.pulang = tap;
+              sessions.push(currentSession);
+              currentSession = null;
+            }
+          }
+        }
+        if (currentSession !== null) {
+          sessions.push(currentSession);
+        }
+
+        // Koreksi single tap session (kasus lupa absen masuk atau pulang)
+        sessions.forEach(session => {
+          if (session.masuk && !session.pulang) {
+            const tap = session.masuk;
+            const hour = tap.hour();
+            const isSunday = dayOfWeek === 0;
+
+            if (isSunday) {
+              session.isOnCall = true;
+              session.detail = 'Lupa absen pulang (On-Call)';
+            } else {
+              const limitShiftEnd = dayOfWeek === 6 ? 15 : 18.5; // Batas shift: 15:00 Sabtu, 18:30 Weekdays
+              if (hour < 12) {
+                // Absen pagi hari: Berarti datang, lupa pulang
+                session.detail = 'Lupa absen pulang';
+              } else if (hour >= 12 && hour < limitShiftEnd) {
+                // Absen sore hari dekat shift selesai: Berarti pulang, lupa absen masuk
+                session.pulang = tap;
+                session.masuk = null;
+                session.isOnCall = false; // Normal shift check-out
+                session.detail = 'Lupa absen masuk';
+              } else {
+                // Absen malam hari: On-call datang, lupa pulang
+                session.isOnCall = true;
+                session.detail = 'Lupa absen pulang (On-Call)';
+              }
+            }
+          }
+        });
+
+        // Evaluasi tipe dan durasi lembur/on-call dari masing-masing session
+        sessions.forEach(session => {
+          let tipe = 'NORMAL';
+          let durasi_menit = 0;
+          let detail = session.detail || '';
+          const masukHH = session.masuk ? session.masuk.format('HH:mm') : null;
+          const pulangHH = session.pulang ? session.pulang.format('HH:mm') : null;
+
+          if (session.isOnCall) {
+            // Kasus ON-CALL
+            if (session.masuk && session.pulang) {
+              tipe = 'ON-CALL';
+              durasi_menit = session.pulang.diff(session.masuk, 'minute');
+              detail = `On-Call masuk ${masukHH}, pulang ${pulangHH}`;
+            } else {
+              tipe = 'TIDAK_LENGKAP';
+              durasi_menit = 0;
+              // detail sudah diset pada proses single tap di atas
+            }
+          } else {
+            // Kasus Shift Normal / LEMBUR
+            if (session.masuk && session.pulang) {
+              if (shiftStart && shiftEnd) {
+                const shiftEndDt = dayjs(session.masuk.format('YYYY-MM-DD') + ' ' + shiftEnd);
+                if (session.pulang.isAfter(shiftEndDt)) {
+                  tipe = 'LEMBUR';
+                  durasi_menit = session.pulang.diff(shiftEndDt, 'minute');
+                  detail = `Pulang jam ${pulangHH} (shift selesai ${shiftEnd})`;
+                } else {
+                  tipe = 'NORMAL';
+                  durasi_menit = 0;
+                  detail = 'Sesuai shift';
+                }
+              } else {
+                tipe = 'NORMAL';
+                durasi_menit = 0;
+                detail = 'Sesuai shift';
+              }
+            } else if (session.masuk && !session.pulang) {
+              tipe = 'TIDAK_LENGKAP';
+              durasi_menit = 0;
+            } else if (session.pulang && !session.masuk) {
+              // Lupa absen masuk, tapi absen pulang tercatat
+              if (shiftStart && shiftEnd) {
+                const shiftEndDt = dayjs(session.pulang.format('YYYY-MM-DD') + ' ' + shiftEnd);
+                if (session.pulang.isAfter(shiftEndDt)) {
+                  tipe = 'LEMBUR';
+                  durasi_menit = session.pulang.diff(shiftEndDt, 'minute');
+                  detail = `Lupa absen masuk, pulang jam ${pulangHH} (shift selesai ${shiftEnd})`;
+                } else {
+                  tipe = 'TIDAK_LENGKAP';
+                  durasi_menit = 0;
+                }
+              } else {
+                tipe = 'TIDAK_LENGKAP';
+                durasi_menit = 0;
+              }
+            }
+          }
+
+          dailyResults.push({
+            tanggal: tgl,
+            hari: ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'][dayOfWeek],
+            jam_masuk: masukHH,
+            jam_pulang: pulangHH,
+            shift_label: shiftLabel,
+            shift_mulai: shiftStart,
+            shift_selesai: shiftEnd,
+            tipe,
+            durasi_menit,
+            detail
+          });
+        });
+
+        cursor = cursor.add(1, 'day');
+      }
+
+      allResults.push({
+        pin: p.nik,
+        nama: p.nama,
+        departemen: p.departemen,
+        daily: dailyResults
+      });
+    }
+
+    return res.json({
+      success: true,
+      startDate,
+      endDate,
+      data: allResults
+    });
+
+  } catch (err) {
+    console.error('❌ getLemburFinder error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
 module.exports = { 
   receiveAbsensi, getAbsensi, getRealtimeAbsensi, getRekapHarian, 
-  getLaporanAbsenKB, upsertJadwalDinas 
+  getLaporanAbsenKB, upsertJadwalDinas, getLemburFinder
 };

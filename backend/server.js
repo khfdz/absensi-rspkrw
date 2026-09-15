@@ -44,10 +44,12 @@ app.use(cors({
     // Normalisasi: hapus trailing slash
     const normalizedOrigin = origin.replace(/\/$/, "");
 
-    // Selalu ijinkan localhost/127.0.0.1 untuk kenyamanan development
+    // Selalu ijinkan localhost/127.0.0.1 untuk kenyamanan development, serta subnet IP privat (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+    const isPrivateIP = /^https?:\/\/(?:192\.168\.|10\.|172\.(?:1[6-9]|2[0-9]|3[0-1])\.)/.test(normalizedOrigin);
     if (
       normalizedOrigin.includes('localhost') || 
       normalizedOrigin.includes('127.0.0.1') ||
+      isPrivateIP ||
       allowedOrigins.includes(normalizedOrigin)
     ) {
       return cb(null, true);
@@ -136,7 +138,7 @@ io.on('connection', (socket) => {
 // ============================================================
 // START
 // ============================================================
-const PORT = parseInt(process.env.PORT) || 3103;
+const PORT = parseInt(process.env.PORT) || 6032;
 const HOST = '0.0.0.0'; // listen semua interface
 
 async function startServer() {
@@ -149,15 +151,15 @@ async function startServer() {
   httpServer.listen(PORT, HOST, () => {
     console.log('\n🚀 ================================================');
     console.log(`   Server    : http://0.0.0.0:${PORT}`);
-    console.log(`   Dashboard : http://192.168.10.184:${PORT}`);
+    console.log(`   Dashboard : http://192.168.10.106:${PORT}`);
     console.log(`   ─── Endpoint Mesin X100C ───────────────────`);
-    console.log(`   Mesin push: POST http://192.168.10.184:${PORT}/api/mesin/push`);
-    console.log(`   Mesin push: GET  http://192.168.10.184:${PORT}/api/mesin/push`);
+    console.log(`   Mesin push: POST http://192.168.10.106:${PORT}/api/mesin/push`);
+    console.log(`   Mesin push: GET  http://192.168.10.106:${PORT}/api/mesin/push`);
     console.log(`   ─── Endpoint Frontend ──────────────────────`);
-    console.log(`   Raw Log   : GET  http://192.168.10.184:${PORT}/api/mesin/raw`);
-    console.log(`   Raw Stats : GET  http://192.168.10.184:${PORT}/api/mesin/raw/stats`);
-    console.log(`   Absensi   : GET  http://192.168.10.184:${PORT}/api/absensi`);
-    console.log(`   Rekap     : GET  http://192.168.10.184:${PORT}/api/absensi/rekap`);
+    console.log(`   Raw Log   : GET  http://192.168.10.106:${PORT}/api/mesin/raw`);
+    console.log(`   Raw Stats : GET  http://192.168.10.106:${PORT}/api/mesin/raw/stats`);
+    console.log(`   Absensi   : GET  http://192.168.10.106:${PORT}/api/absensi`);
+    console.log(`   Rekap     : GET  http://192.168.10.106:${PORT}/api/absensi/rekap`);
     console.log(`   Health    : GET  http://localhost:${PORT}/health`);
     console.log('🚀 ================================================\n');
   });

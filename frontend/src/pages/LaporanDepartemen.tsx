@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
+import { API_BASE } from "@/config";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
@@ -57,7 +58,7 @@ export default function LaporanDepartemen() {
   const fetchReport = useCallback(async (silent = false) => {
     try {
       if (!silent) setLoading(true);
-      const res = await fetch(`http://localhost:3103/api/absensi/laporan-kb?startDate=${periodRange.start}&endDate=${periodRange.end}&departemen=${dept}`);
+      const res = await fetch(`${API_BASE}/api/absensi/laporan-kb?startDate=${periodRange.start}&endDate=${periodRange.end}&departemen=${dept}`);
       const result = await res.json();
       if (result.success) {
         setData(result.data);
@@ -86,7 +87,7 @@ export default function LaporanDepartemen() {
     jam_selesai?: string
   ) => {
     try {
-      const res = await fetch(`http://localhost:3103/api/absensi/jadwal-dinas`, {
+      const res = await fetch(`${API_BASE}/api/absensi/jadwal-dinas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin, tanggal, shift, kategori, jam_mulai, jam_selesai })
@@ -179,134 +180,136 @@ export default function LaporanDepartemen() {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in pb-10">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
             Laporan Absen Per Departemen
-            <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">{dept}</Badge>
+            <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 rounded-lg font-bold px-2 py-0.5">{dept}</Badge>
           </h1>
           <p className="text-muted-foreground text-sm">
-            Periode: <span className="font-semibold text-foreground">{format(startDate, "dd MMMM yyyy", { locale: idLocale })}</span> - <span className="font-semibold text-foreground">{format(endDate, "dd MMMM yyyy", { locale: idLocale })}</span>
+            Periode: <span className="font-bold text-foreground">{format(startDate, "dd MMMM yyyy", { locale: idLocale })}</span> - <span className="font-bold text-foreground">{format(endDate, "dd MMMM yyyy", { locale: idLocale })}</span>
           </p>
         </div>
         <div className="flex gap-2">
           {hiddenDates.length > 0 && (
-            <Button variant="outline" size="sm" onClick={resetHiddenDates} className="h-10 text-xs border-dashed text-orange-600 border-orange-200 hover:bg-orange-50">
+            <Button variant="outline" size="sm" onClick={resetHiddenDates} className="h-11 text-xs border-dashed text-warning border-warning/30 hover:bg-warning/10 rounded-2xl transition-all duration-200 px-4">
               Reset Kolom ({hiddenDates.length} Sembunyi)
             </Button>
           )}
-          <Button variant="outline" onClick={() => fetchReport()} className="gap-2 bg-white">
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Sinkron Data
+          <Button variant="outline" onClick={() => fetchReport()} className="gap-2 bg-card border border-border hover:bg-accent rounded-2xl h-11 px-5 font-bold transition-all duration-200 shadow-card">
+            <RefreshCw className={`w-4 h-4 text-muted-foreground ${loading ? 'animate-spin' : ''}`} /> Sinkron Data
           </Button>
-          <Button onClick={exportCSV} className="gap-2 shadow-md">
+          <Button onClick={exportCSV} className="gap-2 bg-primary text-primary-foreground hover:opacity-90 transition-all rounded-2xl font-bold shadow-card h-11 px-5">
             <Download className="w-4 h-4" /> Export CSV
           </Button>
         </div>
       </div>
 
-      <Card className="border-none shadow-xl bg-slate-50/50">
-        <CardHeader className="pb-4 bg-white rounded-t-xl border-b">
+      <Card className="bg-card rounded-2xl border border-border shadow-card hover:shadow-elevated transition-all duration-200 overflow-hidden animate-slide-up">
+        <CardHeader className="pb-4 bg-card border-b border-border">
           <div className="flex flex-col md:flex-row gap-4 items-end">
             <div className="space-y-1.5 flex-1 min-w-[180px]">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+              <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                 <CalendarIcon className="w-3.5 h-3.5" /> Tanggal Mulai
               </label>
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className={cn("w-full h-10 justify-start text-left font-normal bg-white border-slate-200", !startDate && "text-muted-foreground")}>
+                  <Button variant="outline" className={cn("w-full h-11 justify-start text-left font-semibold bg-background border-border rounded-2xl transition-all", !startDate && "text-muted-foreground")}>
                     <CalendarIcon className="mr-2 h-4 w-4 text-primary" />
                     {startDate ? format(startDate, "dd MMM yyyy", { locale: idLocale }) : <span>Pilih tanggal</span>}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
+                <PopoverContent className="w-auto p-0 rounded-2xl border-border shadow-float" align="start">
                   <Calendar mode="single" selected={startDate} onSelect={(d) => d && setStartDate(d)} initialFocus />
                 </PopoverContent>
               </Popover>
             </div>
 
             <div className="space-y-1.5 flex-1 min-w-[180px]">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+              <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                 <CalendarIcon className="w-3.5 h-3.5" /> Tanggal Selesai
               </label>
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className={cn("w-full h-10 justify-start text-left font-normal bg-white border-slate-200", !endDate && "text-muted-foreground")}>
+                  <Button variant="outline" className={cn("w-full h-11 justify-start text-left font-semibold bg-background border-border rounded-2xl transition-all", !endDate && "text-muted-foreground")}>
                     <CalendarIcon className="mr-2 h-4 w-4 text-primary" />
                     {endDate ? format(endDate, "dd MMM yyyy", { locale: idLocale }) : <span>Pilih tanggal</span>}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
+                <PopoverContent className="w-auto p-0 rounded-2xl border-border shadow-float" align="start">
                   <Calendar mode="single" selected={endDate} onSelect={(d) => d && setEndDate(d)} initialFocus />
                 </PopoverContent>
               </Popover>
             </div>
 
             <div className="space-y-1.5 flex-1 min-w-[200px]">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+              <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                 Departemen
               </label>
               <Select value={dept} onValueChange={setDept}>
-                <SelectTrigger className="h-10 bg-white border-slate-200"><SelectValue /></SelectTrigger>
-                <SelectContent>
+                <SelectTrigger className="h-11 bg-background border-border rounded-2xl focus:ring-ring"><SelectValue /></SelectTrigger>
+                <SelectContent className="rounded-2xl border-border shadow-float">
                   <SelectItem value="all">Semua Departemen</SelectItem>
                   {DEPARTEMEN_LIST.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="flex gap-4 p-3 bg-slate-100/50 rounded-lg border border-slate-200/60 mb-0.5">
+            <div className="flex gap-4 p-3 bg-muted rounded-2xl border border-border mb-0.5">
               <div className="flex flex-col">
-                <span className="text-[10px] text-slate-500 uppercase font-bold">Standard Karu</span>
+                <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Standard Karu</span>
                 <span className="text-sm font-bold text-primary">{data[0]?.jam_aktual || 0} Jam</span>
               </div>
-              <div className="w-px h-8 bg-slate-300"></div>
+              <div className="w-px h-8 bg-border"></div>
               <div className="flex flex-col">
-                <span className="text-[10px] text-slate-500 uppercase font-bold">Total SDM</span>
-                <span className="text-sm font-bold text-slate-700">{data.length} Orang</span>
+                <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Total SDM</span>
+                <span className="text-sm font-bold text-foreground">{data.length} Orang</span>
               </div>
             </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300">
-            <h3 className="text-sm font-bold p-4 bg-blue-50/30 text-blue-800 border-b">Tabel Kehadiran & Jam Kerja</h3>
+            <h3 className="text-sm font-bold p-4 bg-primary/5 text-primary border-b border-border flex items-center gap-2">
+              <Clock className="w-4 h-4" /> Tabel Kehadiran & Jam Kerja
+            </h3>
             <Table className="border-collapse">
-              <TableHeader className="bg-slate-100/80 sticky top-0 z-10">
+              <TableHeader className="bg-muted/30 sticky top-0 z-10 border-b border-border">
                 <TableRow className="hover:bg-transparent">
-                  <TableHead className="w-[50px] border-r font-bold text-slate-700">No</TableHead>
-                  <TableHead className="min-w-[180px] border-r font-bold text-slate-700 sticky left-0 bg-slate-100/80 z-20">Nama & Jabatan</TableHead>
-                  <TableHead className="min-w-[100px] border-r text-center font-bold text-slate-700">Pendidikan</TableHead>
-                  <TableHead className="min-w-[110px] border-r text-center font-bold text-slate-700">Mulai Kerja</TableHead>
-                  <TableHead className="min-w-[100px] border-r text-center font-bold text-blue-700 bg-blue-50/50 font-black">Wajib / Lembur</TableHead>
+                  <TableHead className="w-[50px] border-r border-border font-bold text-xs text-muted-foreground">No</TableHead>
+                  <TableHead className="min-w-[180px] border-r border-border font-bold text-xs text-muted-foreground sticky left-0 bg-muted/80 z-20">Nama & Jabatan</TableHead>
+                  <TableHead className="min-w-[100px] border-r border-border text-center font-bold text-xs text-muted-foreground">Pendidikan</TableHead>
+                  <TableHead className="min-w-[110px] border-r border-border text-center font-bold text-xs text-muted-foreground">Mulai Kerja</TableHead>
+                  <TableHead className="min-w-[100px] border-r border-border text-center font-bold text-xs text-primary bg-primary/5">Wajib / Lembur</TableHead>
 
                   {filteredDates.map(date => (
-                    <TableHead key={date} className={`min-w-[45px] text-center border-r font-bold text-[11px] ${isSunday(new Date(date)) ? 'bg-red-50 text-red-600' : 'text-slate-600'}`}>
+                    <TableHead key={date} className={`min-w-[45px] text-center border-r border-border font-bold text-[11px] ${isSunday(new Date(date)) ? 'bg-destructive/15 text-destructive font-bold' : 'text-muted-foreground'}`}>
                       {format(new Date(date), "dd")}<br />
-                      <span className="text-[9px] font-normal opacity-70 uppercase">{format(new Date(date), "EEE", { locale: idLocale })}</span>
+                      <span className="text-[9px] font-bold opacity-80 uppercase">{format(new Date(date), "EEE", { locale: idLocale })}</span>
                     </TableHead>
                   ))}
 
-                  <TableHead className="min-w-[150px] border-r text-center font-bold text-slate-700 bg-slate-200/50">Total Shift</TableHead>
-                  <TableHead className="min-w-[80px] border-r text-center font-bold text-indigo-700 bg-indigo-50/50">Total Jam</TableHead>
-                  <TableHead className="min-w-[80px] border-r text-center font-bold text-green-700 bg-green-50/50">Lembur</TableHead>
-                  <TableHead className="min-w-[80px] border-r text-center font-bold text-red-700 bg-red-50/50">Hutang Jam</TableHead>
-                  <TableHead className="min-w-[80px] text-center font-bold text-orange-700 bg-orange-50/50">Sisa Cuti</TableHead>
+                  <TableHead className="min-w-[150px] border-r border-border text-center font-bold text-xs text-muted-foreground bg-muted/30">Total Shift</TableHead>
+                  <TableHead className="min-w-[80px] border-r border-border text-center font-bold text-xs text-info bg-info/5">Total Jam</TableHead>
+                  <TableHead className="min-w-[80px] border-r border-border text-center font-bold text-xs text-success bg-success/5">Lembur</TableHead>
+                  <TableHead className="min-w-[80px] border-r border-border text-center font-bold text-xs text-destructive bg-destructive/5">Hutang Jam</TableHead>
+                  <TableHead className="min-w-[80px] text-center font-bold text-xs text-warning bg-warning/5">Sisa Cuti</TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody className="bg-white">
+              <TableBody className="bg-card">
                 {loading ? (
                   <TableRow>
                     <TableCell colSpan={dates.length + 10} className="h-40 text-center">
                       <div className="flex flex-col items-center gap-3">
                         <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
-                        <p className="text-xs font-medium text-slate-500">Memuat data...</p>
+                        <p className="text-xs font-medium text-muted-foreground">Memuat data...</p>
                       </div>
                     </TableCell>
                   </TableRow>
                 ) : data.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={dates.length + 10} className="h-40 text-center text-slate-400">
+                    <TableCell colSpan={dates.length + 10} className="h-40 text-center text-muted-foreground">
                       Belum ada data untuk periode ini.
                     </TableCell>
                   </TableRow>
@@ -315,17 +318,17 @@ export default function LaporanDepartemen() {
                     {data.map((item, idx) => (
                       <Fragment key={item.pin}>
                         {/* BARIS UTAMA (WAJIB) */}
-                        <TableRow className="hover:bg-slate-50 transition-colors border-b-0">
-                          <TableCell className="text-center font-medium border-r text-slate-500" rowSpan={2}>{idx + 1}</TableCell>
-                          <TableCell className="border-r font-medium sticky left-0 bg-white z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]" rowSpan={2}>
+                        <TableRow className="hover:bg-muted/10 transition-colors border-b-0">
+                          <TableCell className="text-center font-bold border-r border-border text-muted-foreground/60 text-xs" rowSpan={2}>{idx + 1}</TableCell>
+                          <TableCell className="border-r border-border font-semibold text-xs sticky left-0 bg-card z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] text-foreground" rowSpan={2}>
                             <div className="flex flex-col">
                               <span>{item.nama}</span>
-                              <span className="text-[10px] text-slate-400 font-normal">{item.jbtn}</span>
+                              <span className="text-[10px] text-muted-foreground font-normal">{item.jbtn}</span>
                             </div>
                           </TableCell>
-                          <TableCell className="text-center border-r text-[11px]" rowSpan={2}>{item.pendidikan}</TableCell>
-                          <TableCell className="text-center border-r text-[11px]" rowSpan={2}>{item.mulai_kerja}</TableCell>
-                          <TableCell className="text-center border-r font-bold bg-blue-50/20 p-1 text-[10px] text-blue-700">KERJA</TableCell>
+                          <TableCell className="text-center border-r border-border text-[11px]" rowSpan={2}>{item.pendidikan}</TableCell>
+                          <TableCell className="text-center border-r border-border text-[11px]" rowSpan={2}>{item.mulai_kerja}</TableCell>
+                          <TableCell className="text-center border-r border-border font-bold bg-primary/5 p-1 text-[10px] text-primary">KERJA</TableCell>
 
                           {filteredDates.map(date => {
                             const shift = item.daily_status[date]?.wajib;
