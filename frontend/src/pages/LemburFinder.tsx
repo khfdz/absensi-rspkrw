@@ -1181,7 +1181,7 @@ export default function LemburFinder() {
                 <div>
                   <CardTitle className="text-sm font-bold text-foreground">Detail Harian — Lembur &amp; On-Call</CardTitle>
                   <p className="text-[11px] text-muted-foreground mt-0.5">
-                    Gunakan tombol <strong className="text-primary">Tukar ▾</strong> untuk ganti shift, atau tombol <strong className="text-warning">Koreksi</strong> jika salah tekan tombol fingerprint.
+                    Gunakan tombol <strong className="text-primary">Tukar ▾</strong> untuk menyesuaikan pergantian jadwal/shift kerja.
                   </p>
                 </div>
                 <div className="flex gap-3 text-[10px] font-bold uppercase tracking-wider shrink-0">
@@ -1210,13 +1210,12 @@ export default function LemburFinder() {
                       <TableHead className="text-center font-bold text-xs text-muted-foreground">Tipe</TableHead>
                       <TableHead className="text-center font-bold text-xs text-muted-foreground">Durasi</TableHead>
                       <TableHead className="font-bold text-xs text-muted-foreground">Keterangan</TableHead>
-                      <TableHead className="text-center w-[100px] font-bold text-xs text-muted-foreground">Aksi</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {selectedPegawai.daily.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={9} className="text-center py-12 text-muted-foreground text-sm">
+                        <TableCell colSpan={8} className="text-center py-12 text-muted-foreground text-sm">
                           Tidak ada data absensi ditemukan dalam periode ini.
                         </TableCell>
                       </TableRow>
@@ -1366,26 +1365,6 @@ export default function LemburFinder() {
 
                             <TableCell className="text-xs text-muted-foreground max-w-[240px] font-medium">
                               {d.detail || "–"}
-                            </TableCell>
-
-                            {/* Kolom Tombol Koreksi Absen */}
-                            <TableCell className="text-center">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => openCorrectionDialog(d)}
-                                className={`h-7 px-2.5 text-[10px] font-bold gap-1 rounded-lg border transition-all ${
-                                  d.tipe === "TIDAK_LENGKAP"
-                                    ? "bg-warning/15 border-warning/40 text-warning hover:bg-warning hover:text-warning-foreground shadow-sm animate-pulse"
-                                    : hasCorrection
-                                    ? "bg-primary/10 border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground"
-                                    : "bg-background border-border text-muted-foreground hover:text-foreground"
-                                }`}
-                                title="Koreksi kesalahan input mesin fingerprint"
-                              >
-                                <Wrench className="w-3 h-3" />
-                                <span>{hasCorrection ? "Edit Koreksi" : "Koreksi"}</span>
-                              </Button>
                             </TableCell>
                           </TableRow>
                         );
