@@ -2,6 +2,7 @@ const ZKLib = require('node-zklib');
 const { pool } = require('../config/database');
 const dayjs = require('dayjs');
 const { getIO } = require('../config/socket');
+const { resolvePin } = require('../services/mappingService');
 
 // State sinkronisasi global di memori backend
 let syncStatus = {
@@ -183,7 +184,8 @@ async function runSyncBackground() {
       for (let i = 0; i < logs.length; i++) {
         const log = logs[i];
         try {
-          const pin = log.deviceUserId ? String(log.deviceUserId).trim() : '';
+          const rawPin = log.deviceUserId ? String(log.deviceUserId).trim() : '';
+          const pin = await resolvePin(rawPin);
           const rawWaktu = log.recordTime || log.attTime;
           const waktu = rawWaktu ? dayjs(rawWaktu).format('YYYY-MM-DD HH:mm:ss') : '';
 

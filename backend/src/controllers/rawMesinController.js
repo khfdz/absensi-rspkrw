@@ -1,6 +1,7 @@
 const { pool } = require('../config/database');
 const { getIO } = require('../config/socket');
 const { parseAbsensiData } = require('../utils/parser');
+const { resolvePin } = require('../services/mappingService');
 const dayjs    = require('dayjs');
 
 // ============================================================
@@ -112,7 +113,8 @@ async function receivePushMesin(req, res) {
     // ── 3. Proses setiap record yang ditemukan ─────────────────
     for (const record of records) {
       try {
-        const pinStr = String(record.pin).trim();
+        const rawPin = String(record.pin).trim();
+        const pinStr = await resolvePin(rawPin);
         const waktu  = record.waktu || new Date();
         const status = record.status || 'masuk';
 

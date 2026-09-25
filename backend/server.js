@@ -27,8 +27,24 @@ const httpServer = http.createServer(app);
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000')
   .split(',').map(o => o.trim());
 
+const isOriginAllowed = (origin) => {
+  if (!origin) return true;
+  const normalizedOrigin = origin.replace(/\/$/, "");
+  const isPrivateIP = /^https?:\/\/(?:192\.168\.|10\.|172\.(?:1[6-9]|2[0-9]|3[0-1])\.)/.test(normalizedOrigin);
+  return (
+    normalizedOrigin.includes('localhost') || 
+    normalizedOrigin.includes('127.0.0.1') ||
+    isPrivateIP ||
+    allowedOrigins.includes(normalizedOrigin)
+  );
+};
+
 const io = new Server(httpServer, {
-  cors: { origin: allowedOrigins, methods: ['GET', 'POST'], credentials: true },
+  cors: {
+    origin: (origin, cb) => cb(null, isOriginAllowed(origin)),
+    methods: ['GET', 'POST'],
+    credentials: true,
+  },
   transports: ['websocket', 'polling'],
 });
 setIO(io);
@@ -39,25 +55,11 @@ setIO(io);
 // 1. CORS — Harus di paling atas sebelum rute lain
 app.use(cors({
   origin: (origin, cb) => {
-    // Jika tidak ada origin (Postman/Mesin Absensi), ijinkan
-    if (!origin) return cb(null, true);
-
-    // Normalisasi: hapus trailing slash
-    const normalizedOrigin = origin.replace(/\/$/, "");
-
-    // Selalu ijinkan localhost/127.0.0.1 untuk kenyamanan development, serta subnet IP privat (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
-    const isPrivateIP = /^https?:\/\/(?:192\.168\.|10\.|172\.(?:1[6-9]|2[0-9]|3[0-1])\.)/.test(normalizedOrigin);
-    if (
-      normalizedOrigin.includes('localhost') || 
-      normalizedOrigin.includes('127.0.0.1') ||
-      isPrivateIP ||
-      allowedOrigins.includes(normalizedOrigin)
-    ) {
+    if (isOriginAllowed(origin)) {
       return cb(null, true);
     }
-
     console.warn(`⚠️ [CORS] Request dari origin ${origin} diblokir.`);
-    return cb(null, false); 
+    return cb(null, false);
   },
   credentials: true,
 }));

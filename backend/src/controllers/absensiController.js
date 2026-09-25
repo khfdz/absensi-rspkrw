@@ -1,6 +1,7 @@
 const { pool, sikkPool } = require('../config/database');
 const { getIO }          = require('../config/socket');
 const { parseAbsensiData } = require('../utils/parser');
+const { resolvePin, getMappingMap } = require('../services/mappingService');
 const dayjs              = require('dayjs');
 
 // ============================================================
@@ -21,6 +22,7 @@ async function receiveAbsensi(req, res) {
     for (const record of records) {
       try {
         if (!record.pin) { errors.push({ record, error: 'PIN kosong' }); continue; }
+        record.pin = await resolvePin(record.pin);
 
         if (!record.waktu || isNaN(record.waktu.getTime())) {
           record.waktu = new Date();
@@ -135,13 +137,35 @@ async function getAbsensi(req, res) {
       }
 
       const [matches] = await sikkPool.query(sikkQuery, sikkParams);
-      const filteredPins = matches.map(m => m.nik);
+      let filteredPins = matches.map(m => m.nik);
+      
+      // Sinkronkan juga dengan mapping_nik_mesin
+      const mappingCache = await getMappingMap();
+      const matchedMappings = (mappingCache.list || []).filter(m => {
+        let matchPin = true;
+        let matchDept = true;
+        if (pin && pin.trim() !== '') {
+          const q = pin.trim().toLowerCase();
+          matchPin = String(m.pin_mesin).toLowerCase().includes(q) || 
+                     String(m.nik_pegawai).toLowerCase().includes(q) || 
+                     String(m.nama).toLowerCase().includes(q);
+        }
+        if (departemen && departemen !== 'all') {
+          matchDept = (m.departemen || '').toLowerCase() === departemen.toLowerCase();
+        }
+        return matchPin && matchDept;
+      });
+
+      for (const m of matchedMappings) {
+        if (!filteredPins.includes(m.nik_pegawai)) filteredPins.push(m.nik_pegawai);
+        if (!filteredPins.includes(m.pin_mesin)) filteredPins.push(m.pin_mesin);
+      }
       
       if (filteredPins.length > 0) {
         where += ` AND pin IN (?)`;
         params.push(filteredPins);
       } else {
-        // Jika kriteria (Nama/Dept) diisi tapi tidak ada yang cocok di SIKKRW, paksa hasil kosong
+        // Jika kriteria (Nama/Dept) diisi tapi tidak ada yang cocok di SIKKRW & mapping, paksa hasil kosong
         return res.json({ 
           success: true, 
           data: [], 
@@ -210,6 +234,21 @@ async function getAbsensi(req, res) {
 
     const pegawaiMap = {};
     pegawaiRows.forEach(p => { pegawaiMap[p.nik] = p; });
+
+    // Fallback ke mapping_nik_mesin jika pegawai tidak ada di SIKKRW (misal staf ME)
+    const mappingCache = await getMappingMap();
+    for (const p of pinsOnPage) {
+      if (!pegawaiMap[p]) {
+        const m = mappingCache.byNik[p] || mappingCache.byPin[p];
+        if (m) {
+          pegawaiMap[p] = {
+            nik: m.nik_pegawai,
+            nama: m.nama,
+            departemen: m.departemen || '-'
+          };
+        }
+      }
+    }
 
     const jadwalMap = {};
     jadwalRows.forEach(j => {
@@ -312,6 +351,16 @@ async function getRealtimeAbsensi(req, res) {
     const pegawaiMap = {};
     pegawaiRows.forEach(p => { pegawaiMap[p.nik] = p; });
 
+    const mappingCacheDetail = await getMappingMap();
+    for (const p of pins) {
+      if (!pegawaiMap[p]) {
+        const m = mappingCacheDetail.byNik[p] || mappingCacheDetail.byPin[p];
+        if (m) {
+          pegawaiMap[p] = { nik: m.nik_pegawai, nama: m.nama, departemen: m.departemen || '-' };
+        }
+      }
+    }
+
     const merged = rows.map(r => ({
       ...r,
       nama_karyawan: pegawaiMap[r.pin] ? pegawaiMap[r.pin].nama : '-',
@@ -361,6 +410,22 @@ async function getRekapHarian(req, res) {
       pegawaiParams.push(userNik);
     }
     const [pegawaiRows] = await sikkPool.query(pegawaiSql, pegawaiParams);
+
+    // Gabungkan pegawai dari mapping jika belum ada di SIKKRW (misal staf ME)
+    const mappingCacheRekap = await getMappingMap();
+    const existingNiks = new Set(pegawaiRows.map(p => p.nik));
+    for (const m of (mappingCacheRekap.list || [])) {
+      if (!existingNiks.has(m.nik_pegawai)) {
+        if (isPrivileged || m.nik_pegawai === userNik) {
+          pegawaiRows.push({
+            nik: m.nik_pegawai,
+            nama: m.nama,
+            departemen: m.departemen || '-'
+          });
+          existingNiks.add(m.nik_pegawai);
+        }
+      }
+    }
 
     // 3. Proses Gabung Baris (Consolidation Logic) per tanggal per pegawai
     const rekap = pegawaiRows.map(p => {
